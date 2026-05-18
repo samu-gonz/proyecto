@@ -108,6 +108,11 @@ function obtenerMaquinaPorId(id) {
   return MAQUINAS.find((m) => m.id === Number(id));
 }
 
+function tiempoServicioMinutos(parada) {
+  const minutos = Number(parada?.tiempoServicioMin);
+  return Number.isFinite(minutos) ? minutos : 10;
+}
+
 function initSelectOrigen() {
   const select = document.getElementById("select-origen");
   const optgroup = document.createElement("optgroup");
@@ -636,7 +641,7 @@ function crearPopupMaquina(maquina) {
 
   const info = document.createElement("p");
   info.className = "popup-maquina__info";
-  info.textContent = `Zona: ${maquina.zona} · Servicio: ${maquina.tiempoServicioMin} min`;
+  info.textContent = `Zona: ${maquina.zona} · Servicio: ${tiempoServicioMinutos(maquina)} min`;
   cont.appendChild(info);
 
   const acciones = document.createElement("div");
@@ -764,7 +769,7 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
 
     const label = document.createElement("label");
     label.htmlFor = input.id;
-    label.textContent = `${m.nombre} (${m.tiempoServicioMin} min)`;
+    label.textContent = `${m.nombre} (${tiempoServicioMinutos(m)} min)`;
 
     div.appendChild(input);
     div.appendChild(label);
@@ -970,7 +975,7 @@ async function calcularRuta(opciones = {}) {
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
     const tiempoServicioTotal = rutaOrdenada.reduce(
-      (acc, p) => acc + p.tiempoServicioMin,
+      (acc, p) => acc + tiempoServicioMinutos(p),
       0
     );
     const tiempoTotal = tiempoConduccionMin + tiempoServicioTotal;
@@ -1008,8 +1013,8 @@ async function calcularRuta(opciones = {}) {
     html += "<ol>";
     html += `<li><strong>Salida:</strong> ${origen.nombre}</li>`;
     rutaOrdenada.forEach((p, idx) => {
-      html += `<li>${p.nombre} (${p.tiempoServicioMin} min)</li>`;
-      dibujarNumeroEnMapa(idx + 1, p.lat, p.lng);
+      html += `<li>${p.nombre} (${tiempoServicioMinutos(p)} min)</li>`;
+      dibujarNumeroEnMapa(idx + 1, p.lat, p.lng ?? p.lon);
     });
     html += `<li><strong>Regreso:</strong> ${origen.nombre}</li>`;
     html += "</ol>";
@@ -1027,7 +1032,7 @@ async function calcularRuta(opciones = {}) {
     html += "<h3>Orden de visita (sin línea en mapa)</h3><ol>";
     html += `<li><strong>Salida:</strong> ${origen.nombre}</li>`;
     rutaOrdenada.forEach((p) => {
-      html += `<li>${p.nombre} (${p.tiempoServicioMin} min)</li>`;
+      html += `<li>${p.nombre} (${tiempoServicioMinutos(p)} min)</li>`;
     });
     html += `<li><strong>Regreso:</strong> ${origen.nombre}</li></ol>`;
     resumenDiv.innerHTML = html;

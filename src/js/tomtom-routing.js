@@ -44,6 +44,7 @@ function normalizarPuntoRuta(punto) {
   const lat = latDePunto(punto);
   const lon = lonDePunto(punto);
   return {
+    ...punto,
     lat,
     lon,
     lng: lon,
