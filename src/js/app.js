@@ -76,6 +76,7 @@ const MAQUINAS = PUNTOS_ISLA.map((punto, index) => ({
 let map;
 let capasTraficoTomTom = null;
 let rutaLayer = null;
+let rutaLayerGroup = null;
 let numeroMarkers = [];
 let maquinaMarkers = [];
 let maquinasVisibles = [...MAQUINAS];
@@ -209,24 +210,47 @@ function geoJsonALatLngs(geometry) {
 }
 
 function pintarRutaEnMapa(latLngs) {
+  limpiarCapasRuta();
+
+  rutaLayerGroup = L.layerGroup().addTo(map);
+  rutaLayerGroup.addLayer(
+    L.polyline(latLngs, {
+      color: "#2dc937",
+      weight: 6,
+      opacity: 0.9,
+      lineJoin: "round",
+      pane: map.getPane("routePane") ? "routePane" : undefined
+    })
+  );
+
+  encuadrarRutaEnMapa(rutaLayerGroup.getBounds());
+}
+
+function limpiarCapasRuta() {
   if (rutaLayer) {
     map.removeLayer(rutaLayer);
     rutaLayer = null;
   }
-
-  rutaLayer = L.polyline(latLngs, {
-    color: "#0078d4",
-    weight: 5,
-    opacity: 0.9,
-    lineJoin: "round",
-    pane: map.getPane("routePane") ? "routePane" : undefined
-  }).addTo(map);
-
-  const boundsRuta = rutaLayer.getBounds();
-  map.fitBounds(boundsRuta, { padding: [30, 30] });
-
+  if (rutaLayerGroup) {
+    map.removeLayer(rutaLayerGroup);
+    rutaLayerGroup = null;
+  }
   if (capasTraficoTomTom) {
-    capasTraficoTomTom.mostrarEnRuta(boundsRuta);
+    capasTraficoTomTom.ocultarDeRuta();
+  }
+}
+
+function encuadrarRutaEnMapa(bounds) {
+  if (bounds && bounds.isValid()) {
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }
+}
+
+function pintarRutaTomTomEnMapa(rutaTomTom) {
+  limpiarCapasRuta();
+  rutaLayerGroup = dibujarRutaTomTomColoreada(map, rutaTomTom);
+  if (rutaLayerGroup) {
+    encuadrarRutaEnMapa(rutaLayerGroup.getBounds());
   }
 }
 
@@ -431,13 +455,7 @@ function obtenerSeleccionados() {
 
 function limpiarRutaEnMapa() {
   limpiarNumeroMarkers();
-  if (rutaLayer) {
-    map.removeLayer(rutaLayer);
-    rutaLayer = null;
-  }
-  if (capasTraficoTomTom) {
-    capasTraficoTomTom.ocultarDeRuta();
-  }
+  limpiarCapasRuta();
 }
 
 function limpiarNumeroMarkers() {
@@ -730,35 +748,35 @@ async function calcularRuta(opciones = {}) {
 
   const rutaOrdenada = ordenarPorRutaOptima(origen, destinos);
 
-  const coords = [
-    [origen.lng, origen.lat],
-    ...rutaOrdenada.map((p) => [p.lng, p.lat]),
-    [origen.lng, origen.lat]
-  ];
+  const claveTomTom =
+    typeof obtenerClaveTomTom === "function"
+      ? obtenerClaveTomTom()
+      : window.TOMTOM_API_KEY || "";
 
-  const coordStr = coords.map((c) => c.join(",")).join(";");
-
-  const url = `https://router.project-osrm.org/route/v1/driving/${coordStr}?overview=full&geometries=geojson`;
-
-  resumenDiv.innerHTML = "<p>Calculando ruta...</p>";
+  resumenDiv.innerHTML = "<p>Calculando ruta con tráfico TomTom...</p>";
 
   try {
-    const resp = await fetch(url);
-    const data = await resp.json();
-
     let distanciaKm = 0;
     let tiempoConduccionMin = 0;
     let avisoRuta = "";
+    let statsTrafico = null;
 
-    if (!data.routes || data.routes.length === 0) {
-      pintarRutaEnMapa(puntosRutaComoLatLng(origen, rutaOrdenada));
-      avisoRuta = "Ruta aproximada en línea recta (OSRM no disponible).";
-    } else {
-      const route = data.routes[0];
-      pintarRutaEnMapa(geoJsonALatLngs(route.geometry));
-      distanciaKm = route.distance / 1000;
-      tiempoConduccionMin = route.duration / 60;
+    if (!claveTomTom) {
+      throw new Error("Sin clave TomTom");
     }
+
+    const rutaTomTom = await obtenerRutaTomTom(
+      origen,
+      rutaOrdenada,
+      claveTomTom
+    );
+
+    pintarRutaTomTomEnMapa(rutaTomTom);
+
+    const resumen = rutaTomTom.summary || {};
+    distanciaKm = (resumen.lengthInMeters || 0) / 1000;
+    tiempoConduccionMin = (resumen.travelTimeInSeconds || 0) / 60;
+    statsTrafico = resumenTraficoRuta(rutaTomTom);
 
     const tiempoServicioTotal = rutaOrdenada.reduce(
       (acc, p) => acc + p.tiempoServicioMin,
@@ -781,6 +799,15 @@ async function calcularRuta(opciones = {}) {
       html += `<p><strong>Distancia total:</strong> ${distanciaKm.toFixed(1)} km</p>`;
       html += `<p><strong>Tiempo conducción:</strong> ${tiempoConduccionMin.toFixed(0)} min</p>`;
     }
+    if (resumen.trafficDelayInSeconds > 0) {
+      html += `<p><strong>Retraso por tráfico:</strong> ${Math.round(resumen.trafficDelayInSeconds / 60)} min</p>`;
+    }
+    if (statsTrafico && statsTrafico.total > 0) {
+      html += `<p><strong>Tramos en ruta:</strong> `;
+      html += `<span style="color:#2dc937">■</span> ${statsTrafico.fluido} fluidos `;
+      html += `<span style="color:#e7b416">■</span> ${statsTrafico.lento} lentos `;
+      html += `<span style="color:#cc3232">■</span> ${statsTrafico.congestion} congestionados</p>`;
+    }
     html += `<p><strong>Tiempo servicio:</strong> ${tiempoServicioTotal} min</p>`;
     if (tiempoConduccionMin > 0) {
       html += `<p><strong>Tiempo total estimado:</strong> ${tiempoTotal.toFixed(0)} min</p>`;
@@ -802,7 +829,7 @@ async function calcularRuta(opciones = {}) {
     pintarRutaEnMapa(puntosRutaComoLatLng(origen, rutaOrdenada));
     dibujarParadasNumeradas(rutaOrdenada);
 
-    let html = "<p>Ruta aproximada dibujada en el mapa (sin datos de carretera).</p>";
+    let html = "<p>Ruta aproximada en verde (TomTom Routing no disponible).</p>";
     html += `<p><strong>Salida desde:</strong> ${origen.nombre}</p>`;
     html += `<p><strong>Paradas a visitar:</strong> ${rutaOrdenada.length}</p>`;
     html += "<h3>Orden de visita</h3><ol>";
