@@ -216,9 +216,9 @@ function descripcionDesdeTec(tec) {
 }
 
 function normalizarIncidenciaDesdeSeccion(seccion, puntosGlobales, indice) {
-  const categoria = seccion.simpleCategory;
+  let categoria = seccion.simpleCategory;
   if (!categoria || !CATEGORIAS_INCIDENTE_EN_RUTA.has(categoria)) {
-    return null;
+    categoria = "JAM";
   }
 
   const inicio = Math.max(0, seccion.startPointIndex ?? 0);
@@ -288,14 +288,22 @@ function extraerIncidenciasDeRuta(data) {
       : [];
 
   return seccionesTraficoDeRuta(ruta)
-    .filter(
-      (s) =>
-        s.sectionType === "TRAFFIC" &&
-        s.simpleCategory &&
-        CATEGORIAS_INCIDENTE_EN_RUTA.has(s.simpleCategory)
-    )
+    .filter((s) => esSeccionIncidenciaEnRuta(s))
     .map((s, i) => normalizarIncidenciaDesdeSeccion(s, puntosGlobales, i))
     .filter(Boolean);
+}
+
+function esSeccionIncidenciaEnRuta(seccion) {
+  if (seccion.sectionType !== "TRAFFIC") return false;
+  if (
+    seccion.simpleCategory &&
+    CATEGORIAS_INCIDENTE_EN_RUTA.has(seccion.simpleCategory)
+  ) {
+    return true;
+  }
+  const delay = Number(seccion.delayInSeconds) || 0;
+  const magnitude = Number(seccion.magnitudeOfDelay) || 0;
+  return delay >= 30 || magnitude >= 2;
 }
 
 function construirUrlIncidentDetailsBbox(apiKey, bbox) {

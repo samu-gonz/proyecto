@@ -1217,7 +1217,16 @@ async function calcularRuta(opciones = {}) {
   if (resolverOrigen) {
     try {
       await resolverOrigenDesdeSelector();
-    } catch {
+    } catch (err) {
+      const mensaje =
+        err?.message ||
+        "No se pudo determinar el punto de partida. Confirma el GPS o elige una máquina.";
+      const geo = document.getElementById("geo-estado");
+      if (geo) {
+        geo.className = "small geo-estado error";
+        geo.textContent = mensaje;
+      }
+      resumenDiv.innerHTML = `<p>${mensaje}</p>`;
       return;
     }
   }
@@ -1303,12 +1312,21 @@ async function calcularRuta(opciones = {}) {
 
     if (!resultadoRuta?.data) {
       ocultarResumenRutaFlotante();
+      resumenDiv.innerHTML =
+        "<p><strong>No se obtuvo respuesta de TomTom.</strong> Comprueba tu conexión y la clave API.</p>";
       return;
     }
 
     const datosTomTom = resultadoRuta.data;
     const capaRuta = resultadoRuta.capa;
     const rutaTomTom = datosTomTom.routes[0];
+
+    if (!capaRuta) {
+      resumenDiv.innerHTML =
+        "<p><strong>TomTom devolvió datos pero no geometría de ruta.</strong> Prueba con otras paradas o recarga la página.</p>";
+      console.warn("Ruta sin capa Leaflet:", datosTomTom);
+      return;
+    }
 
     if (capaRuta?.getBounds) {
       encuadrarRutaEnMapa(capaRuta.getBounds());

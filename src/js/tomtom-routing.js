@@ -332,11 +332,9 @@ async function calcularRutaTomTom(
     const resumenViaje = extraerResumenRutaTomTom(data);
 
     if (mapa && typeof pintarIncidenciasDeRuta === "function") {
-      try {
-        await pintarIncidenciasDeRuta(mapa, data, apiKey);
-      } catch (errInc) {
+      pintarIncidenciasDeRuta(mapa, data, apiKey).catch((errInc) => {
         console.warn("No se pudieron pintar incidencias de la ruta:", errInc);
-      }
+      });
     }
 
     return { data, capa, resumenViaje };
