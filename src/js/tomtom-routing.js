@@ -1,25 +1,33 @@
 /**
- * Routing TomTom con tráfico en tiempo real y dibujo por tramos coloreados.
+ * Ruta TomTom por carretera: geometría en legs[].points y colores por secciones TRAFFIC.
  */
 
 const COLORES_TRAFICO = {
-  fluido: "#2dc937",
-  lento: "#e7b416",
-  congestion: "#cc3232"
+  fluido: "#00E676",
+  lento: "#FFD600",
+  congestion: "#FF1744"
 };
+
+const COLOR_RUTA_ESQUIVADA_BORDE = "#ff00aa";
+
+let miRutaActual = null;
+let miRutaGrupo = null;
+
+function lonDePunto(p) {
+  return p.lng ?? p.lon;
+}
 
 function construirUrlRutaTomTom(origen, paradas, apiKey) {
   const ubicaciones = [
-    `${origen.lat},${origen.lng}`,
-    ...paradas.map((p) => `${p.lat},${p.lng}`),
-    `${origen.lat},${origen.lng}`
+    `${origen.lat},${lonDePunto(origen)}`,
+    ...paradas.map((p) => `${p.lat},${lonDePunto(p)}`),
+    `${origen.lat},${lonDePunto(origen)}`
   ].join(":");
 
   const params = new URLSearchParams({
     key: apiKey,
-    traffic: "true",
-    travelMode: "car",
     routeType: "fastest",
+    traffic: "true",
     routeRepresentation: "polyline",
     sectionType: "traffic"
   });
@@ -27,242 +35,199 @@ function construirUrlRutaTomTom(origen, paradas, apiKey) {
   return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?${params.toString()}`;
 }
 
-async function obtenerRutaTomTom(origen, paradas, apiKey) {
-  const url = construirUrlRutaTomTom(origen, paradas, apiKey);
-  const resp = await fetch(url);
-
-  if (!resp.ok) {
-    throw new Error(`TomTom Routing respondió ${resp.status}`);
-  }
-
-  const data = await resp.json();
-  if (!data.routes || data.routes.length === 0) {
-    throw new Error("TomTom no devolvió ninguna ruta.");
-  }
-
-  const ruta = data.routes[0];
-  const puntos = extraerPuntosRutaTomTom(ruta);
-  if (puntos.length < 2) {
-    throw new Error(
-      "TomTom no devolvió geometría detallada de la ruta (legs.points / encodedPolyline)."
-    );
-  }
-
-  return ruta;
+function puntosCarreteraDesdeLeg(leg) {
+  const infoRuta = leg.points;
+  if (!infoRuta?.length) return [];
+  return infoRuta.map((p) => [p.latitude, p.longitude]);
 }
 
-function puntoALatLng(p) {
-  if (!p) return null;
+function puntosCarreteraDesdeDatos(data) {
+  const legs = data?.routes?.[0]?.legs;
+  if (!legs?.length) return [];
 
-  if (Array.isArray(p) && p.length >= 2) {
-    return [Number(p[0]), Number(p[1])];
-  }
-
-  const lat = p.latitude ?? p.lat;
-  const lng = p.longitude ?? p.lng ?? p.lon;
-  if (lat == null || lng == null) return null;
-
-  return [Number(lat), Number(lng)];
-}
-
-/**
- * Decodifica la polyline codificada de TomTom (formato Google, precisión 5 o 7).
- */
-function decodificarPolylineTomTom(encoded, precision) {
-  if (!encoded || typeof encoded !== "string") return [];
-
-  const factor = Math.pow(10, precision ?? 5);
-  let index = 0;
-  let lat = 0;
-  let lng = 0;
-  const coordinates = [];
-
-  while (index < encoded.length) {
-    let byte;
-    let shift = 0;
-    let result = 0;
-
-    do {
-      byte = encoded.charCodeAt(index++) - 63;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20);
-
-    const deltaLat = result & 1 ? ~(result >> 1) : result >> 1;
-    lat += deltaLat;
-
-    shift = 0;
-    result = 0;
-
-    do {
-      byte = encoded.charCodeAt(index++) - 63;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20);
-
-    const deltaLng = result & 1 ? ~(result >> 1) : result >> 1;
-    lng += deltaLng;
-
-    coordinates.push([lat / factor, lng / factor]);
-  }
-
-  return coordinates;
-}
-
-function agregarPuntosRuta(destino, nuevos) {
-  nuevos.forEach((punto) => {
-    const latLng = puntoALatLng(punto);
-    if (!latLng || Number.isNaN(latLng[0]) || Number.isNaN(latLng[1])) {
-      return;
-    }
-    destino.push(latLng);
-  });
-}
-
-/**
- * Geometría completa de la ruta: concatena legs[].points en orden (sin deduplicar:
- * los índices de sections TRAFFIC coinciden con esa secuencia). Si faltan points,
- * decodifica legs[].encodedPolyline.
- */
-function extraerPuntosRutaTomTom(ruta) {
-  const puntos = [];
-  const legs = ruta.legs || [];
-
+  const puntosCarreteraReal = [];
   legs.forEach((leg) => {
-    const listaPuntos = leg.points || [];
-    if (listaPuntos.length > 0) {
-      agregarPuntosRuta(puntos, listaPuntos);
-      return;
-    }
-
-    if (leg.encodedPolyline) {
-      const decodificados = decodificarPolylineTomTom(
-        leg.encodedPolyline,
-        leg.encodedPolylinePrecision
-      );
-      agregarPuntosRuta(puntos, decodificados);
+    const tramo = puntosCarreteraDesdeLeg(leg);
+    if (tramo.length > 0) {
+      puntosCarreteraReal.push(...tramo);
     }
   });
-
-  if (puntos.length >= 2) {
-    return puntos;
-  }
-
-  if (ruta.encodedPolyline) {
-    return decodificarPolylineTomTom(
-      ruta.encodedPolyline,
-      ruta.encodedPolylinePrecision
-    );
-  }
-
-  return puntos;
+  return puntosCarreteraReal;
 }
 
-function colorSegunTramo(section) {
-  const categoria = section.simpleCategory;
-  const magnitud = section.magnitudeOfDelay ?? 0;
-  const retraso = section.delayInSeconds ?? 0;
-
-  if (
-    categoria === "JAM" ||
-    categoria === "ROAD_CLOSURE" ||
-    magnitud >= 3
-  ) {
-    return COLORES_TRAFICO.congestion;
+/**
+ * Puntos del tramo: seccion.points si existe; si no, slice de la polilínea global.
+ */
+function puntosDesdeSeccion(seccion, puntosGlobales) {
+  if (seccion.points?.length) {
+    return seccion.points.map((p) => [p.latitude, p.longitude]);
   }
 
-  if (
-    categoria === "ROAD_WORK" ||
-    magnitud === 2 ||
-    retraso >= 45
-  ) {
-    return COLORES_TRAFICO.lento;
+  const inicio = Math.max(0, seccion.startPointIndex ?? 0);
+  const fin = Math.min(
+    puntosGlobales.length - 1,
+    seccion.endPointIndex ?? inicio
+  );
+
+  if (fin < inicio || puntosGlobales.length < 2) {
+    return [];
   }
 
-  if (magnitud === 1 || retraso >= 10) {
-    return COLORES_TRAFICO.lento;
-  }
+  return puntosGlobales.slice(inicio, fin + 1);
+}
 
+function colorPorRetraso(delayInSeconds) {
+  const retraso = delayInSeconds ?? 0;
+  if (retraso > 90) return COLORES_TRAFICO.congestion;
+  if (retraso > 30) return COLORES_TRAFICO.lento;
   return COLORES_TRAFICO.fluido;
 }
 
-function coloresPorIndiceRuta(rutaTomTom, numPuntos) {
-  const colores = new Array(numPuntos).fill(COLORES_TRAFICO.fluido);
-  const secciones = (rutaTomTom.sections || []).filter(
-    (s) => s.sectionType === "TRAFFIC"
-  );
+async function obtenerRutaTomTom(origen, paradas, apiKey, areasEvitar = []) {
+  const url = construirUrlRutaTomTom(origen, paradas, apiKey);
+  const opciones = { method: "GET" };
+
+  if (areasEvitar.length > 0) {
+    opciones.method = "POST";
+    opciones.headers = { "Content-Type": "application/json" };
+    opciones.body = JSON.stringify({
+      avoidAreas: { rectangles: areasEvitar }
+    });
+  }
+
+  const resp = await fetch(url, opciones);
+
+  if (!resp.ok) {
+    const cuerpo = await resp.text().catch(() => "");
+    throw new Error(
+      `TomTom Routing ${resp.status}${cuerpo ? `: ${cuerpo.slice(0, 120)}` : ""}`
+    );
+  }
+
+  const data = await resp.json();
+
+  if (!data.routes?.[0]?.legs?.length) {
+    throw new Error("TomTom no devolvió routes[0].legs.");
+  }
+
+  const puntosCarreteraReal = puntosCarreteraDesdeDatos(data);
+  if (puntosCarreteraReal.length < 2) {
+    throw new Error(
+      "TomTom no devolvió routes[0].legs[].points (sin geometría de carretera)."
+    );
+  }
+
+  return data;
+}
+
+function limpiarRutaTomTom(mapa) {
+  if (miRutaActual && mapa) {
+    mapa.removeLayer(miRutaActual);
+    miRutaActual = null;
+  }
+  if (miRutaGrupo && mapa) {
+    mapa.removeLayer(miRutaGrupo);
+    miRutaGrupo = null;
+  }
+}
+
+function crearPolilineaTramo(mapa, puntos, color, opciones = {}) {
+  if (puntos.length < 2) return null;
+
+  const peso = opciones.rutaEsquivada ? 8 : 6;
+  const estilo = {
+    color,
+    weight: peso,
+    opacity: 0.92,
+    lineJoin: "round",
+    lineCap: "round"
+  };
+
+  if (opciones.rutaEsquivada) {
+    estilo.dashArray = "14 8";
+  }
+
+  return L.polyline(puntos, estilo);
+}
+
+/**
+ * Pinta la ruta recorriendo routes[0].sections (TRAFFIC) con color según delayInSeconds.
+ */
+function pintarRutaPorCarretera(mapa, data, opciones = {}) {
+  limpiarRutaTomTom(mapa);
+
+  const ruta = data.routes[0];
+  const puntosGlobales = puntosCarreteraDesdeDatos(data);
+
+  if (puntosGlobales.length < 2) {
+    return null;
+  }
+
+  const secciones = (ruta.sections || [])
+    .filter((s) => s.sectionType === "TRAFFIC")
+    .sort((a, b) => (a.startPointIndex ?? 0) - (b.startPointIndex ?? 0));
+
+  miRutaGrupo = L.layerGroup();
+
+  if (opciones.rutaEsquivada) {
+    miRutaGrupo.addLayer(
+      L.polyline(puntosGlobales, {
+        color: COLOR_RUTA_ESQUIVADA_BORDE,
+        weight: 10,
+        opacity: 0.4,
+        lineJoin: "round",
+        lineCap: "round"
+      })
+    );
+  }
+
+  miRutaGrupo.addTo(mapa);
+
+  const anadirTramo = (puntos, color) => {
+    const linea = crearPolilineaTramo(mapa, puntos, color, opciones);
+    if (linea) {
+      miRutaGrupo.addLayer(linea);
+    }
+  };
+
+  if (secciones.length === 0) {
+    anadirTramo(puntosGlobales, COLORES_TRAFICO.fluido);
+    return miRutaGrupo;
+  }
+
+  let indiceActual = 0;
 
   secciones.forEach((seccion) => {
     const inicio = Math.max(0, seccion.startPointIndex ?? 0);
     const fin = Math.min(
-      numPuntos - 1,
+      puntosGlobales.length - 1,
       seccion.endPointIndex ?? inicio
     );
-    const color = colorSegunTramo(seccion);
 
-    for (let i = inicio; i <= fin; i++) {
-      colores[i] = color;
+    if (inicio > indiceActual) {
+      const tramoLibre = puntosGlobales.slice(indiceActual, inicio + 1);
+      anadirTramo(tramoLibre, COLORES_TRAFICO.fluido);
     }
+
+    const puntosSeccion = puntosDesdeSeccion(seccion, puntosGlobales);
+    const color = colorPorRetraso(seccion.delayInSeconds);
+
+    if (puntosSeccion.length >= 2) {
+      anadirTramo(puntosSeccion, color);
+    }
+
+    indiceActual = fin;
   });
 
-  return colores;
-}
-
-function agruparTramosPorColor(puntos, colores) {
-  if (puntos.length < 2) return [];
-
-  const tramos = [];
-  let inicio = 0;
-  let colorActual = colores[0] ?? COLORES_TRAFICO.fluido;
-
-  for (let i = 1; i < puntos.length; i++) {
-    const color = colores[i] ?? COLORES_TRAFICO.fluido;
-    if (color !== colorActual) {
-      tramos.push({
-        puntos: puntos.slice(inicio, i + 1),
-        color: colorActual
-      });
-      inicio = i;
-      colorActual = color;
-    }
+  if (indiceActual < puntosGlobales.length - 1) {
+    anadirTramo(puntosGlobales.slice(indiceActual), COLORES_TRAFICO.fluido);
   }
 
-  tramos.push({
-    puntos: puntos.slice(inicio),
-    color: colorActual
-  });
-
-  return tramos;
+  return miRutaGrupo;
 }
 
-function crearPolilineaTramo(puntos, color, mapa) {
-  if (puntos.length < 2) return null;
-
-  return L.polyline(puntos, {
-    color,
-    weight: 6,
-    opacity: 0.92,
-    lineJoin: "round",
-    lineCap: "round",
-    pane: mapa.getPane("routePane") ? "routePane" : undefined
-  });
-}
-
-function dibujarRutaTomTomColoreada(mapa, rutaTomTom) {
-  const puntos = extraerPuntosRutaTomTom(rutaTomTom);
-  if (puntos.length < 2) return null;
-
-  const grupo = L.layerGroup();
-  const colores = coloresPorIndiceRuta(rutaTomTom, puntos.length);
-  const tramos = agruparTramosPorColor(puntos, colores);
-
-  tramos.forEach(({ puntos: coords, color }) => {
-    const linea = crearPolilineaTramo(coords, color, mapa);
-    if (linea) grupo.addLayer(linea);
-  });
-
-  grupo.addTo(mapa);
-  return grupo;
+function dibujarRutaTomTomColoreada(mapa, data, opciones) {
+  return pintarRutaPorCarretera(mapa, data, opciones);
 }
 
 function resumenTraficoRuta(rutaTomTom) {
@@ -274,7 +239,7 @@ function resumenTraficoRuta(rutaTomTom) {
   let fluido = 0;
 
   secciones.forEach((s) => {
-    const color = colorSegunTramo(s);
+    const color = colorPorRetraso(s.delayInSeconds);
     if (color === COLORES_TRAFICO.congestion) congestion += 1;
     else if (color === COLORES_TRAFICO.lento) lento += 1;
     else fluido += 1;

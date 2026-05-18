@@ -75,8 +75,7 @@ const MAQUINAS = PUNTOS_ISLA.map((punto, index) => ({
 
 let map;
 let capasTraficoTomTom = null;
-let rutaLayer = null;
-let rutaLayerGroup = null;
+let estadoRutaReponedor = null;
 let numeroMarkers = [];
 let maquinaMarkers = [];
 let maquinasVisibles = [...MAQUINAS];
@@ -200,40 +199,9 @@ function centrarMapaEn(lat, lng, zoom = 14) {
   map.flyTo([lat, lng], zoom, { duration: 0.7 });
 }
 
-function geoJsonALatLngs(geometry) {
-  const coords =
-    geometry.type === "LineString"
-      ? geometry.coordinates
-      : geometry.coordinates.flat();
-
-  return coords.map((c) => [c[1], c[0]]);
-}
-
-function pintarRutaEnMapa(latLngs) {
-  limpiarCapasRuta();
-
-  rutaLayerGroup = L.layerGroup().addTo(map);
-  rutaLayerGroup.addLayer(
-    L.polyline(latLngs, {
-      color: "#2dc937",
-      weight: 6,
-      opacity: 0.9,
-      lineJoin: "round",
-      pane: map.getPane("routePane") ? "routePane" : undefined
-    })
-  );
-
-  encuadrarRutaEnMapa(rutaLayerGroup.getBounds());
-}
-
 function limpiarCapasRuta() {
-  if (rutaLayer) {
-    map.removeLayer(rutaLayer);
-    rutaLayer = null;
-  }
-  if (rutaLayerGroup) {
-    map.removeLayer(rutaLayerGroup);
-    rutaLayerGroup = null;
+  if (typeof limpiarRutaTomTom === "function") {
+    limpiarRutaTomTom(map);
   }
   if (capasTraficoTomTom) {
     capasTraficoTomTom.ocultarDeRuta();
@@ -246,21 +214,72 @@ function encuadrarRutaEnMapa(bounds) {
   }
 }
 
-function pintarRutaTomTomEnMapa(rutaTomTom) {
-  limpiarCapasRuta();
-  rutaLayerGroup = dibujarRutaTomTomColoreada(map, rutaTomTom);
-  if (rutaLayerGroup) {
-    encuadrarRutaEnMapa(rutaLayerGroup.getBounds());
+function pintarRutaTomTomEnMapa(datosTomTom, opciones = {}) {
+  if (!opciones.rutaEsquivada) {
+    limpiarCapasRuta();
+  } else if (typeof limpiarRutaTomTom === "function") {
+    limpiarRutaTomTom(map);
+  }
+
+  const capaRuta = pintarRutaPorCarretera(map, datosTomTom, opciones);
+  if (capaRuta && capaRuta.getBounds) {
+    encuadrarRutaEnMapa(capaRuta.getBounds());
+  }
+  return capaRuta;
+}
+
+async function esquivarIncidenciaTomTom(incidencia) {
+  if (!estadoRutaReponedor) {
+    alert("Calcula primero una ruta óptima para poder esquivar incidencias.");
+    return;
+  }
+
+  const rect = incidencia.avoidRectangle;
+  if (!rect) {
+    alert("No se pudo determinar la zona a evitar para esta incidencia.");
+    return;
+  }
+
+  const { origen, rutaOrdenada, claveTomTom } = estadoRutaReponedor;
+  const yaExiste = estadoRutaReponedor.areasEvitadas.some(
+    (r) =>
+      r.southWestCorner.latitude === rect.southWestCorner.latitude &&
+      r.southWestCorner.longitude === rect.southWestCorner.longitude
+  );
+  if (!yaExiste) {
+    estadoRutaReponedor.areasEvitadas.push(rect);
+  }
+
+  const resumenDiv = document.getElementById("resumen");
+  resumenDiv.innerHTML =
+    "<p>Recalculando ruta esquivando incidencia...</p>";
+
+  try {
+    const datosTomTom = await obtenerRutaTomTom(
+      origen,
+      rutaOrdenada,
+      claveTomTom,
+      estadoRutaReponedor.areasEvitadas
+    );
+
+    pintarRutaTomTomEnMapa(datosTomTom, { rutaEsquivada: true });
+
+    const resumen = datosTomTom.routes[0].summary || {};
+    const distanciaKm = (resumen.lengthInMeters || 0) / 1000;
+    const tiempoMin = (resumen.travelTimeInSeconds || 0) / 60;
+
+    let html = `<p><strong>Ruta alternativa (esquivando incidencia)</strong></p>`;
+    html += `<p>${incidencia.descripcion}</p>`;
+    html += `<p><strong>Distancia:</strong> ${distanciaKm.toFixed(1)} km · <strong>Tiempo:</strong> ${tiempoMin.toFixed(0)} min</p>`;
+    html += `<p class="small">Línea fucsia = ruta que evita la zona marcada.</p>`;
+    resumenDiv.innerHTML = html;
+  } catch (e) {
+    console.error(e);
+    resumenDiv.innerHTML = `<p>No se pudo recalcular la ruta: ${e.message}</p>`;
   }
 }
 
-function puntosRutaComoLatLng(origen, rutaOrdenada) {
-  return [
-    [origen.lat, origen.lng],
-    ...rutaOrdenada.map((p) => [p.lat, p.lng]),
-    [origen.lat, origen.lng]
-  ];
-}
+window.esquivarIncidenciaTomTom = esquivarIncidenciaTomTom;
 
 function establecerOrigenMaquina(maquina, opciones = {}) {
   const { centrar = true, limpiarRuta = true } = opciones;
@@ -636,10 +655,10 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
 }
 
 function initMap() {
-  map = L.map("map").setView([28.2916, -16.6291], 10);
+  map = L.map("map", { maxZoom: 22 }).setView([28.05, -16.574], 15);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
+    maxZoom: 22,
     attribution: "&copy; OpenStreetMap"
   }).addTo(map);
 
@@ -656,7 +675,6 @@ function initMap() {
   actualizarInfoOrigen();
 
   actualizarMarcadoresMaquinas(maquinasVisibles);
-  ajustarVistaMapa(maquinasVisibles);
 }
 
 async function aplicarFiltroZona(recalcularRuta = true) {
@@ -745,6 +763,7 @@ async function calcularRuta(opciones = {}) {
 
   limpiarRutaEnMapa();
   limpiarNumeroMarkers();
+  estadoRutaReponedor = null;
 
   const rutaOrdenada = ordenarPorRutaOptima(origen, destinos);
 
@@ -765,13 +784,24 @@ async function calcularRuta(opciones = {}) {
       throw new Error("Sin clave TomTom");
     }
 
-    const rutaTomTom = await obtenerRutaTomTom(
+    estadoRutaReponedor = {
+      origen,
+      rutaOrdenada,
+      claveTomTom,
+      areasEvitadas: []
+    };
+
+    const datosTomTom = await obtenerRutaTomTom(
       origen,
       rutaOrdenada,
       claveTomTom
     );
+    const rutaTomTom = datosTomTom.routes[0];
 
-    pintarRutaTomTomEnMapa(rutaTomTom);
+    const capaRuta = pintarRutaTomTomEnMapa(datosTomTom);
+    if (capasTraficoTomTom?.mostrarEnRuta && capaRuta?.getBounds) {
+      capasTraficoTomTom.mostrarEnRuta(capaRuta.getBounds());
+    }
 
     const resumen = rutaTomTom.summary || {};
     distanciaKm = (resumen.lengthInMeters || 0) / 1000;
@@ -804,9 +834,9 @@ async function calcularRuta(opciones = {}) {
     }
     if (statsTrafico && statsTrafico.total > 0) {
       html += `<p><strong>Tramos en ruta:</strong> `;
-      html += `<span style="color:#2dc937">■</span> ${statsTrafico.fluido} fluidos `;
-      html += `<span style="color:#e7b416">■</span> ${statsTrafico.lento} lentos `;
-      html += `<span style="color:#cc3232">■</span> ${statsTrafico.congestion} congestionados</p>`;
+      html += `<span style="color:#00E676">■</span> ${statsTrafico.fluido} fluidos `;
+      html += `<span style="color:#FFD600">■</span> ${statsTrafico.lento} lentos `;
+      html += `<span style="color:#FF1744">■</span> ${statsTrafico.congestion} congestionados</p>`;
     }
     html += `<p><strong>Tiempo servicio:</strong> ${tiempoServicioTotal} min</p>`;
     if (tiempoConduccionMin > 0) {
@@ -825,14 +855,15 @@ async function calcularRuta(opciones = {}) {
 
     resumenDiv.innerHTML = html;
   } catch (e) {
-    console.error(e);
-    pintarRutaEnMapa(puntosRutaComoLatLng(origen, rutaOrdenada));
-    dibujarParadasNumeradas(rutaOrdenada);
+    console.error("TomTom Routing:", e);
+    limpiarCapasRuta();
 
-    let html = "<p>Ruta aproximada en verde (TomTom Routing no disponible).</p>";
+    let html = `<p><strong>No se pudo calcular la ruta por carretera.</strong></p>`;
+    html += `<p>${e.message || "Error al conectar con TomTom Routing."}</p>`;
+    html += `<p>Revisa la clave API y que la app se ejecute con <code>npm run dev</code>.</p>`;
     html += `<p><strong>Salida desde:</strong> ${origen.nombre}</p>`;
-    html += `<p><strong>Paradas a visitar:</strong> ${rutaOrdenada.length}</p>`;
-    html += "<h3>Orden de visita</h3><ol>";
+    html += `<p><strong>Paradas planificadas:</strong> ${rutaOrdenada.length}</p>`;
+    html += "<h3>Orden de visita (sin línea en mapa)</h3><ol>";
     html += `<li><strong>Salida:</strong> ${origen.nombre}</li>`;
     rutaOrdenada.forEach((p) => {
       html += `<li>${p.nombre} (${p.tiempoServicioMin} min)</li>`;
@@ -840,12 +871,6 @@ async function calcularRuta(opciones = {}) {
     html += `<li><strong>Regreso:</strong> ${origen.nombre}</li></ol>`;
     resumenDiv.innerHTML = html;
   }
-}
-
-function dibujarParadasNumeradas(rutaOrdenada) {
-  rutaOrdenada.forEach((p, idx) => {
-    dibujarNumeroEnMapa(idx + 1, p.lat, p.lng);
-  });
 }
 
 window.addEventListener("DOMContentLoaded", () => {

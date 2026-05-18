@@ -65,15 +65,17 @@
     <div class="map-wrap">
       <div id="map"></div>
       <div class="map-controls map-controls--traffic" id="traffic-controls">
-        <strong>Leyenda de tráfico en ruta</strong>
-        <p class="small traffic-nota">Colores TomTom sobre el camino elegido.</p>
+        <strong>Tráfico TomTom en vivo</strong>
+        <p class="small traffic-nota">
+          Marcadores interactivos con datos en vivo. Clic → Esquivar incidencia.
+        </p>
         <label class="traffic-toggle">
           <input type="checkbox" id="chk-trafico-flujo" />
           Capa flujo (mapa)
         </label>
         <label class="traffic-toggle">
-          <input type="checkbox" id="chk-trafico-incidencias" />
-          Capa incidencias (mapa)
+          <input type="checkbox" id="chk-trafico-incidencias" checked />
+          Incidencias interactivas (API en vivo)
         </label>
         <div class="traffic-leyenda">
           <span class="leyenda-item leyenda-item--fluido" data-capa="flujo" title="Clic: mostrar/ocultar flujo">Fluido</span>
