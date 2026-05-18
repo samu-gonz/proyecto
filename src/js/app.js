@@ -82,6 +82,8 @@ let textoFiltroActual = "";
 let repositorMarker = null;
 let origenMaquinaMarker = null;
 let origenRuta = null;
+let maquinaSeleccionadaId = null;
+let marcadorSeleccionadoLayer = null;
 
 const iconoRepositor = L.divIcon({
   className: "marcador-repositor",
@@ -192,7 +194,50 @@ function colocarMarcadorOrigenMaquina(maquina) {
     .bindPopup(`<b>Origen de ruta</b><br>${maquina.nombre}`);
 }
 
-function establecerOrigenMaquina(maquina) {
+function centrarMapaEn(lat, lng, zoom = 14) {
+  map.flyTo([lat, lng], zoom, { duration: 0.7 });
+}
+
+function geoJsonALatLngs(geometry) {
+  const coords =
+    geometry.type === "LineString"
+      ? geometry.coordinates
+      : geometry.coordinates.flat();
+
+  return coords.map((c) => [c[1], c[0]]);
+}
+
+function pintarRutaEnMapa(latLngs) {
+  if (rutaLayer) {
+    map.removeLayer(rutaLayer);
+    rutaLayer = null;
+  }
+
+  rutaLayer = L.polyline(latLngs, {
+    color: "#0078d4",
+    weight: 5,
+    opacity: 0.9,
+    lineJoin: "round"
+  }).addTo(map);
+
+  map.fitBounds(rutaLayer.getBounds(), { padding: [30, 30] });
+}
+
+function puntosRutaComoLatLng(origen, rutaOrdenada) {
+  return [
+    [origen.lat, origen.lng],
+    ...rutaOrdenada.map((p) => [p.lat, p.lng]),
+    [origen.lat, origen.lng]
+  ];
+}
+
+function establecerOrigenMaquina(maquina, opciones = {}) {
+  const { centrar = true, limpiarRuta = true } = opciones;
+
+  if (limpiarRuta) {
+    limpiarRutaEnMapa();
+  }
+
   origenRuta = {
     nombre: maquina.nombre,
     lat: maquina.lat,
@@ -205,11 +250,22 @@ function establecerOrigenMaquina(maquina) {
 
   colocarMarcadorOrigenMaquina(maquina);
   actualizarInfoOrigen();
-  map.setView([maquina.lat, maquina.lng], 13);
+
+  if (centrar) {
+    centrarMapaEn(maquina.lat, maquina.lng, 14);
+  }
 
   if (maquinasVisibles.some((m) => m.id === maquina.id)) {
     marcarMaquinaEnLista(maquina.id, true);
   }
+}
+
+async function aplicarOrigenMaquinaYRecalcular(maquina) {
+  establecerOrigenMaquina(maquina);
+  const estado = document.getElementById("geo-estado");
+  estado.className = "small geo-estado ok";
+  estado.textContent = `Origen: ${maquina.nombre}. Calculando ruta en el mapa...`;
+  await calcularRuta({ resolverOrigen: false });
 }
 
 function obtenerUbicacionGPS() {
@@ -254,13 +310,14 @@ async function aplicarOrigenGPS() {
       precision: accuracy
     };
 
+    limpiarRutaEnMapa();
     limpiarMarcadoresOrigen();
     colocarMarcadorRepositor(latitude, longitude);
     actualizarInfoOrigen();
 
     estado.className = "small geo-estado ok";
     estado.textContent = `Ubicación detectada (±${Math.round(accuracy)} m).`;
-    map.setView([latitude, longitude], 14);
+    centrarMapaEn(latitude, longitude, 14);
   } catch (error) {
     estado.className = "small geo-estado error";
     if (error.message === "unsupported") {
@@ -378,19 +435,111 @@ function limpiarNumeroMarkers() {
   numeroMarkers = [];
 }
 
+function irAMaquinaEnMapa(maquina) {
+  centrarMapaEn(maquina.lat, maquina.lng, 15);
+  seleccionarMaquinaEnMapa(maquina);
+}
+
+function seleccionarMaquinaEnMapa(maquina) {
+  maquinaSeleccionadaId = maquina.id;
+
+  if (marcadorSeleccionadoLayer) {
+    map.removeLayer(marcadorSeleccionadoLayer);
+    marcadorSeleccionadoLayer = null;
+  }
+
+  marcadorSeleccionadoLayer = L.circleMarker([maquina.lat, maquina.lng], {
+    radius: 14,
+    color: "#0078d4",
+    weight: 3,
+    fillColor: "#0078d4",
+    fillOpacity: 0.15
+  }).addTo(map);
+
+  const estado = document.getElementById("geo-estado");
+  estado.className = "small geo-estado ok";
+  estado.textContent = `Seleccionada: ${maquina.nombre}`;
+}
+
+function crearPopupMaquina(maquina) {
+  const cont = document.createElement("div");
+  cont.className = "popup-maquina";
+
+  const titulo = document.createElement("b");
+  titulo.textContent = maquina.nombre;
+  cont.appendChild(titulo);
+
+  const info = document.createElement("p");
+  info.className = "popup-maquina__info";
+  info.textContent = `Zona: ${maquina.zona} · Servicio: ${maquina.tiempoServicioMin} min`;
+  cont.appendChild(info);
+
+  const acciones = document.createElement("div");
+  acciones.className = "popup-maquina__acciones";
+
+  const btnCentrar = document.createElement("button");
+  btnCentrar.type = "button";
+  btnCentrar.className = "popup-btn popup-btn--nav";
+  btnCentrar.textContent = "Centrar en mapa";
+  btnCentrar.addEventListener("click", () => irAMaquinaEnMapa(maquina));
+
+  const btnOrigen = document.createElement("button");
+  btnOrigen.type = "button";
+  btnOrigen.className = "popup-btn popup-btn--sec";
+  btnOrigen.textContent = "Usar como origen";
+  btnOrigen.addEventListener("click", async () => {
+    document.getElementById("select-origen").value = String(maquina.id);
+    await aplicarOrigenMaquinaYRecalcular(maquina);
+  });
+
+  const btnIncluir = document.createElement("button");
+  btnIncluir.type = "button";
+  btnIncluir.className = "popup-btn popup-btn--sec";
+  btnIncluir.textContent = "Incluir en ruta";
+  btnIncluir.addEventListener("click", async () => {
+    marcarMaquinaEnLista(maquina.id, true);
+    irAMaquinaEnMapa(maquina);
+    await calcularRuta({ resolverOrigen: false });
+  });
+
+  acciones.appendChild(btnCentrar);
+  acciones.appendChild(btnOrigen);
+  acciones.appendChild(btnIncluir);
+  cont.appendChild(acciones);
+
+  return cont;
+}
+
 function actualizarMarcadoresMaquinas(maquinas) {
   maquinaMarkers.forEach((mk) => map.removeLayer(mk));
   maquinaMarkers = [];
 
+  if (marcadorSeleccionadoLayer) {
+    map.removeLayer(marcadorSeleccionadoLayer);
+    marcadorSeleccionadoLayer = null;
+  }
+
+  const seleccionadaSigueVisible = maquinas.some(
+    (m) => m.id === maquinaSeleccionadaId
+  );
+  if (!seleccionadaSigueVisible) {
+    maquinaSeleccionadaId = null;
+  }
+
   maquinas.forEach((m) => {
-    const mk = L.marker([m.lat, m.lng], { title: m.nombre })
-      .addTo(map)
-      .bindPopup(
-        `<b>${m.nombre}</b><br>` +
-        `Zona: ${m.zona}<br>` +
-        `Servicio estimado: ${m.tiempoServicioMin} min`
-      );
+    const mk = L.marker([m.lat, m.lng], { title: m.nombre }).addTo(map);
+    mk.bindPopup(crearPopupMaquina(m));
+
+    mk.on("click", () => {
+      seleccionarMaquinaEnMapa(m);
+      mk.openPopup();
+    });
+
     maquinaMarkers.push(mk);
+
+    if (m.id === maquinaSeleccionadaId) {
+      seleccionarMaquinaEnMapa(m);
+    }
   });
 }
 
@@ -556,6 +705,7 @@ async function calcularRuta(opciones = {}) {
     return;
   }
 
+  limpiarRutaEnMapa();
   limpiarNumeroMarkers();
 
   const rutaOrdenada = ordenarPorRutaOptima(origen, destinos);
@@ -576,24 +726,20 @@ async function calcularRuta(opciones = {}) {
     const resp = await fetch(url);
     const data = await resp.json();
 
+    let distanciaKm = 0;
+    let tiempoConduccionMin = 0;
+    let avisoRuta = "";
+
     if (!data.routes || data.routes.length === 0) {
-      resumenDiv.innerHTML = "<p>No se ha podido calcular la ruta.</p>";
-      return;
+      pintarRutaEnMapa(puntosRutaComoLatLng(origen, rutaOrdenada));
+      avisoRuta = "Ruta aproximada en línea recta (OSRM no disponible).";
+    } else {
+      const route = data.routes[0];
+      pintarRutaEnMapa(geoJsonALatLngs(route.geometry));
+      distanciaKm = route.distance / 1000;
+      tiempoConduccionMin = route.duration / 60;
     }
 
-    const route = data.routes[0];
-
-    if (rutaLayer) {
-      map.removeLayer(rutaLayer);
-    }
-    rutaLayer = L.geoJSON(route.geometry, {
-      style: { color: "#0078d4", weight: 4 }
-    }).addTo(map);
-
-    map.fitBounds(rutaLayer.getBounds(), { padding: [20, 20] });
-
-    const distanciaKm = route.distance / 1000;
-    const tiempoConduccionMin = route.duration / 60;
     const tiempoServicioTotal = rutaOrdenada.reduce(
       (acc, p) => acc + p.tiempoServicioMin,
       0
@@ -601,6 +747,7 @@ async function calcularRuta(opciones = {}) {
     const tiempoTotal = tiempoConduccionMin + tiempoServicioTotal;
 
     let html = "";
+    if (avisoRuta) html += `<p>${avisoRuta}</p>`;
     html += `<p><strong>Salida desde:</strong> ${origen.nombre}`;
     if (origen.esGPS && origen.precision) {
       html += ` (±${Math.round(origen.precision)} m)`;
@@ -610,10 +757,14 @@ async function calcularRuta(opciones = {}) {
       html += `<p><strong>Zona filtrada:</strong> ${textoFiltroActual.trim()}</p>`;
     }
     html += `<p><strong>Paradas a visitar:</strong> ${rutaOrdenada.length}</p>`;
-    html += `<p><strong>Distancia total:</strong> ${distanciaKm.toFixed(1)} km</p>`;
-    html += `<p><strong>Tiempo conducción:</strong> ${tiempoConduccionMin.toFixed(0)} min</p>`;
+    if (distanciaKm > 0) {
+      html += `<p><strong>Distancia total:</strong> ${distanciaKm.toFixed(1)} km</p>`;
+      html += `<p><strong>Tiempo conducción:</strong> ${tiempoConduccionMin.toFixed(0)} min</p>`;
+    }
     html += `<p><strong>Tiempo servicio:</strong> ${tiempoServicioTotal} min</p>`;
-    html += `<p><strong>Tiempo total estimado:</strong> ${tiempoTotal.toFixed(0)} min</p>`;
+    if (tiempoConduccionMin > 0) {
+      html += `<p><strong>Tiempo total estimado:</strong> ${tiempoTotal.toFixed(0)} min</p>`;
+    }
 
     html += "<h3>Orden de visita</h3>";
     html += "<ol>";
@@ -628,8 +779,26 @@ async function calcularRuta(opciones = {}) {
     resumenDiv.innerHTML = html;
   } catch (e) {
     console.error(e);
-    resumenDiv.innerHTML = "<p>Error al contactar con el servidor de rutas.</p>";
+    pintarRutaEnMapa(puntosRutaComoLatLng(origen, rutaOrdenada));
+    dibujarParadasNumeradas(rutaOrdenada);
+
+    let html = "<p>Ruta aproximada dibujada en el mapa (sin datos de carretera).</p>";
+    html += `<p><strong>Salida desde:</strong> ${origen.nombre}</p>`;
+    html += `<p><strong>Paradas a visitar:</strong> ${rutaOrdenada.length}</p>`;
+    html += "<h3>Orden de visita</h3><ol>";
+    html += `<li><strong>Salida:</strong> ${origen.nombre}</li>`;
+    rutaOrdenada.forEach((p) => {
+      html += `<li>${p.nombre} (${p.tiempoServicioMin} min)</li>`;
+    });
+    html += `<li><strong>Regreso:</strong> ${origen.nombre}</li></ol>`;
+    resumenDiv.innerHTML = html;
   }
+}
+
+function dibujarParadasNumeradas(rutaOrdenada) {
+  rutaOrdenada.forEach((p, idx) => {
+    dibujarNumeroEnMapa(idx + 1, p.lat, p.lng);
+  });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -641,10 +810,20 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-ruta").addEventListener("click", calcularRuta);
   document.getElementById("select-origen").addEventListener("change", async () => {
     try {
-      await resolverOrigenDesdeSelector();
-      const destinos = obtenerDestinosRuta(obtenerSeleccionados());
-      if (destinos.length > 0) {
-        await calcularRuta({ resolverOrigen: false });
+      const valor = document.getElementById("select-origen").value;
+
+      if (valor === "gps") {
+        await aplicarOrigenGPS();
+        const destinos = obtenerDestinosRuta(obtenerSeleccionados());
+        if (destinos.length > 0) {
+          await calcularRuta({ resolverOrigen: false });
+        }
+        return;
+      }
+
+      const maquina = obtenerMaquinaPorId(valor);
+      if (maquina) {
+        await aplicarOrigenMaquinaYRecalcular(maquina);
       }
     } catch {
       /* mensaje ya mostrado en geo-estado */
