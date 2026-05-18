@@ -160,6 +160,27 @@ function limpiarRutaTomTom(mapa) {
     mapa.removeLayer(miRutaGrupo);
     miRutaGrupo = null;
   }
+  if (typeof limpiarMarcadoresIncidencias === "function" && mapa) {
+    limpiarMarcadoresIncidencias(mapa);
+  }
+}
+
+/**
+ * Distancia y tiempo de conducción desde routes[0].summary (TomTom Routing).
+ */
+function extraerResumenRutaTomTom(data) {
+  const summary = data?.routes?.[0]?.summary;
+  if (!summary) return null;
+
+  const lengthInMeters = Number(summary.lengthInMeters);
+  const travelTimeInSeconds = Number(summary.travelTimeInSeconds);
+
+  return {
+    distanciaKm: Number.isFinite(lengthInMeters) ? lengthInMeters / 1000 : 0,
+    tiempoMin: Number.isFinite(travelTimeInSeconds) ? travelTimeInSeconds / 60 : 0,
+    lengthInMeters,
+    travelTimeInSeconds
+  };
 }
 
 function pintarRutaPorCarretera(mapa, data, opciones = {}) {
@@ -308,8 +329,17 @@ async function calcularRutaTomTom(
     const capa = mapa
       ? pintarRutaPorCarretera(mapa, data, opcionesPintado)
       : null;
+    const resumenViaje = extraerResumenRutaTomTom(data);
 
-    return { data, capa };
+    if (mapa && typeof pintarIncidenciasDeRuta === "function") {
+      try {
+        await pintarIncidenciasDeRuta(mapa, data, apiKey);
+      } catch (errInc) {
+        console.warn("No se pudieron pintar incidencias de la ruta:", errInc);
+      }
+    }
+
+    return { data, capa, resumenViaje };
   } catch (error) {
     console.error("Error en la conexión con TomTom:", error);
     throw error;

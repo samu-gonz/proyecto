@@ -82,9 +82,14 @@ let maquinasVisibles = [...MAQUINAS];
 let textoFiltroActual = "";
 let repositorMarker = null;
 let origenMaquinaMarker = null;
+let gpsWatchId = null;
 let origenRuta = null;
 let maquinaSeleccionadaId = null;
 let marcadorSeleccionadoLayer = null;
+let guardarEstadoTimeout = null;
+let restaurandoSesion = false;
+
+const STORAGE_KEY = "planificador-ruta-tenerife-v1";
 
 const iconoRepositor = L.divIcon({
   className: "marcador-repositor",
@@ -113,6 +118,193 @@ function tiempoServicioMinutos(parada) {
   return Number.isFinite(minutos) ? minutos : 10;
 }
 
+function leerEstadoGuardado() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const estado = JSON.parse(raw);
+    if (estado?.version !== 1) return null;
+    return estado;
+  } catch {
+    return null;
+  }
+}
+
+function limpiarEstadoGuardado() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (e) {
+    console.warn("No se pudo borrar el estado guardado:", e);
+  }
+}
+
+function programarGuardadoEstado() {
+  if (restaurandoSesion) return;
+  clearTimeout(guardarEstadoTimeout);
+  guardarEstadoTimeout = setTimeout(() => guardarEstadoSesion(), 400);
+}
+
+function guardarEstadoSesion() {
+  const origen = obtenerOrigenRuta();
+  const select = document.getElementById("select-origen");
+  const valorOrigen = select?.value ?? "gps";
+  const maquinasIds = obtenerSeleccionadosIds().filter((id) =>
+    MAQUINAS.some((m) => m.id === id)
+  );
+
+  const estado = {
+    version: 1,
+    origenSelect: valorOrigen,
+    maquinasSeleccionadas: maquinasIds,
+    textoFiltroZona: textoFiltroActual || "",
+    rutaCalculada: estadoRutaReponedor != null && maquinasIds.length > 0
+  };
+
+  if (origen?.esGPS && typeof coordenadasValidas === "function" && coordenadasValidas(origen)) {
+    estado.origenGps = {
+      lat: origen.lat,
+      lon: origen.lon ?? origen.lng,
+      precision: origen.precision ?? null
+    };
+  } else if (origen?.esMaquina && origen.maquinaId) {
+    estado.origenMaquinaId = origen.maquinaId;
+  } else if (valorOrigen !== "gps") {
+    const id = Number(valorOrigen);
+    if (Number.isFinite(id) && obtenerMaquinaPorId(id)) {
+      estado.origenMaquinaId = id;
+    }
+  }
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(estado));
+  } catch (e) {
+    console.warn("No se pudo guardar el estado en localStorage:", e);
+  }
+}
+
+function reanudarSeguimientoGPS() {
+  if (!navigator.geolocation?.watchPosition || !esEntornoSeguroParaGPS()) {
+    return;
+  }
+
+  detenerSeguimientoGPS();
+
+  gpsWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      if (aplicarPosicionGPS(position, { esPrimeraLectura: false })) {
+        programarGuardadoEstado();
+      }
+    },
+    (error) => {
+      const estado = document.getElementById("geo-estado");
+      if (estado && origenRuta?.esGPS) {
+        estado.className = "small geo-estado error";
+        estado.textContent = mensajeErrorGeolocalizacion(error);
+      }
+    },
+    opcionesGPS
+  );
+}
+
+function restaurarOrigenDesdeEstado(estado) {
+  const select = document.getElementById("select-origen");
+  const geo = document.getElementById("geo-estado");
+
+  if (estado.origenGps) {
+    const lat = Number(estado.origenGps.lat);
+    const lon = Number(estado.origenGps.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return false;
+    }
+
+    if (select) select.value = "gps";
+    origenRuta = {
+      nombre: "Tu ubicación",
+      lat,
+      lon,
+      lng: lon,
+      zona: "GPS",
+      esGPS: true,
+      esMaquina: false,
+      maquinaId: null,
+      precision: estado.origenGps.precision ?? null
+    };
+    colocarMarcadorGpsUsuario(lat, lon, estado.origenGps.precision);
+    actualizarInfoOrigen();
+    if (geo) {
+      geo.className = "small geo-estado ok";
+      geo.textContent =
+        "Ubicación restaurada. Reactivando seguimiento GPS en segundo plano…";
+    }
+    reanudarSeguimientoGPS();
+    return true;
+  }
+
+  if (estado.origenMaquinaId) {
+    const maquina = obtenerMaquinaPorId(estado.origenMaquinaId);
+    if (!maquina) return false;
+    if (select) select.value = String(maquina.id);
+    establecerOrigenMaquina(maquina, { centrar: false, limpiarRuta: false });
+    if (geo) {
+      geo.className = "small geo-estado ok";
+      geo.textContent = `Origen restaurado: ${maquina.nombre}`;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+async function restaurarEstadoDesdeLocalStorage() {
+  const estado = leerEstadoGuardado();
+  if (!estado?.rutaCalculada) return;
+
+  const ids = (estado.maquinasSeleccionadas || []).filter((id) =>
+    MAQUINAS.some((m) => m.id === id)
+  );
+  if (ids.length === 0) return;
+
+  restaurandoSesion = true;
+
+  try {
+    const resumenDiv = document.getElementById("resumen");
+    if (resumenDiv) {
+      resumenDiv.innerHTML = "<p>Restaurando tu última sesión…</p>";
+    }
+
+    if (estado.textoFiltroZona?.trim()) {
+      const inputZona = document.getElementById("input-zona");
+      if (inputZona) inputZona.value = estado.textoFiltroZona;
+      textoFiltroActual = estado.textoFiltroZona;
+      maquinasVisibles = filtrarMaquinas(estado.textoFiltroZona);
+      actualizarMarcadoresMaquinas(maquinasVisibles);
+      actualizarIndicadorFiltro(estado.textoFiltroZona, maquinasVisibles.length);
+    }
+
+    renderListaMaquinas(maquinasVisibles, ids);
+
+    if (!restaurarOrigenDesdeEstado(estado)) {
+      if (resumenDiv) {
+        resumenDiv.innerHTML =
+          "<p>No se pudo restaurar el punto de partida guardado.</p>";
+      }
+      return;
+    }
+
+    await calcularRuta({ resolverOrigen: false });
+
+    const geo = document.getElementById("geo-estado");
+    if (geo && !geo.classList.contains("error")) {
+      geo.className = "small geo-estado ok";
+      geo.textContent = "Ruta restaurada desde la última sesión.";
+    }
+  } catch (e) {
+    console.warn("Restauración de sesión:", e);
+  } finally {
+    restaurandoSesion = false;
+  }
+}
+
 function initSelectOrigen() {
   const select = document.getElementById("select-origen");
   const optgroup = document.createElement("optgroup");
@@ -135,7 +327,15 @@ function marcarMaquinaEnLista(id, checked) {
   if (chk) chk.checked = checked;
 }
 
+function detenerSeguimientoGPS() {
+  if (gpsWatchId != null && navigator.geolocation?.clearWatch) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+  }
+  gpsWatchId = null;
+}
+
 function limpiarMarcadoresOrigen() {
+  detenerSeguimientoGPS();
   if (repositorMarker) {
     map.removeLayer(repositorMarker);
     repositorMarker = null;
@@ -144,6 +344,21 @@ function limpiarMarcadoresOrigen() {
     map.removeLayer(origenMaquinaMarker);
     origenMaquinaMarker = null;
   }
+}
+
+function quitarMarcadorOrigenMaquina() {
+  if (origenMaquinaMarker) {
+    map.removeLayer(origenMaquinaMarker);
+    origenMaquinaMarker = null;
+  }
+}
+
+function textoPopupGpsUsuario(precision) {
+  return (
+    `<b>Tu ubicación</b><br>Punto de partida de la ruta` +
+    (precision ? `<br>Precisión: ±${Math.round(precision)} m` : "") +
+    `<br><span class="small">Actualización en tiempo real</span>`
+  );
 }
 
 function actualizarInfoOrigen() {
@@ -207,8 +422,20 @@ function mensajeErrorGeolocalizacion(error) {
   }
 }
 
+function actualizarMarcadorGpsUsuario(lat, lng, precision) {
+  if (!repositorMarker) return;
+  repositorMarker.setLatLng([lat, lng]);
+  repositorMarker.setPopupContent(textoPopupGpsUsuario(precision));
+  repositorMarker.bringToFront();
+}
+
 function colocarMarcadorGpsUsuario(lat, lng, precision) {
-  limpiarMarcadoresOrigen();
+  quitarMarcadorOrigenMaquina();
+
+  if (repositorMarker) {
+    actualizarMarcadorGpsUsuario(lat, lng, precision);
+    return;
+  }
 
   repositorMarker = L.circleMarker([lat, lng], {
     radius: 12,
@@ -219,12 +446,46 @@ function colocarMarcadorGpsUsuario(lat, lng, precision) {
     fillOpacity: 0.95
   })
     .addTo(map)
-    .bindPopup(
-      `<b>Tu ubicación</b><br>Punto de partida de la ruta` +
-        (precision ? `<br>Precisión: ±${Math.round(precision)} m` : "")
-    );
+    .bindPopup(textoPopupGpsUsuario(precision));
 
   repositorMarker.bringToFront();
+}
+
+function aplicarPosicionGPS(position, { esPrimeraLectura = false } = {}) {
+  const { latitude, longitude, accuracy } = position.coords;
+  const lat = Number(latitude);
+  const lon = Number(longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return false;
+  }
+
+  origenRuta = {
+    nombre: "Tu ubicación",
+    lat,
+    lon,
+    lng: lon,
+    zona: "GPS",
+    esGPS: true,
+    esMaquina: false,
+    maquinaId: null,
+    precision: accuracy
+  };
+
+  if (esPrimeraLectura) {
+    limpiarRutaEnMapa();
+    colocarMarcadorGpsUsuario(lat, lon, accuracy);
+    actualizarInfoOrigen();
+    centrarMapaEn(lat, lon, 15);
+  } else {
+    colocarMarcadorGpsUsuario(lat, lon, accuracy);
+    actualizarInfoOrigen();
+    if (estadoRutaReponedor && !restaurandoSesion) {
+      programarGuardadoEstado();
+    }
+  }
+
+  return true;
 }
 
 function colocarMarcadorOrigenMaquina(maquina) {
@@ -257,6 +518,25 @@ function encuadrarRutaEnMapa(bounds) {
   }
 }
 
+function mostrarResumenRutaFlotante(datosTomTom) {
+  const panel = document.getElementById("ruta-stats-flotante");
+  if (!panel || typeof extraerResumenRutaTomTom !== "function") return;
+
+  const stats = extraerResumenRutaTomTom(datosTomTom);
+  if (!stats) {
+    ocultarResumenRutaFlotante();
+    return;
+  }
+
+  panel.textContent = `Distancia: ${stats.distanciaKm.toFixed(1)} km | Tiempo: ${stats.tiempoMin.toFixed(0)} min`;
+  panel.hidden = false;
+}
+
+function ocultarResumenRutaFlotante() {
+  const panel = document.getElementById("ruta-stats-flotante");
+  if (panel) panel.hidden = true;
+}
+
 function pintarRutaTomTomEnMapa(datosTomTom, opciones = {}) {
   if (!opciones.rutaEsquivada) {
     limpiarCapasRuta();
@@ -268,6 +548,7 @@ function pintarRutaTomTomEnMapa(datosTomTom, opciones = {}) {
   if (capaRuta && capaRuta.getBounds) {
     encuadrarRutaEnMapa(capaRuta.getBounds());
   }
+  mostrarResumenRutaFlotante(datosTomTom);
   return capaRuta;
 }
 
@@ -324,15 +605,18 @@ async function esquivarIncidenciaTomTom(incidencia) {
       encuadrarRutaEnMapa(resultado.capa.getBounds());
     }
 
-    const resumen = datosTomTom.routes[0].summary || {};
-    const distanciaKm = (resumen.lengthInMeters || 0) / 1000;
-    const tiempoMin = (resumen.travelTimeInSeconds || 0) / 60;
+    mostrarResumenRutaFlotante(datosTomTom);
+
+    const stats = extraerResumenRutaTomTom(datosTomTom);
+    const distanciaKm = stats?.distanciaKm ?? 0;
+    const tiempoMin = stats?.tiempoMin ?? 0;
 
     let html = `<p><strong>Ruta alternativa (esquivando incidencia)</strong></p>`;
     html += `<p>${incidencia.descripcion}</p>`;
     html += `<p><strong>Distancia:</strong> ${distanciaKm.toFixed(1)} km · <strong>Tiempo:</strong> ${tiempoMin.toFixed(0)} min</p>`;
     html += `<p class="small">Línea fucsia = ruta que evita la zona marcada.</p>`;
     resumenDiv.innerHTML = html;
+    guardarEstadoSesion();
   } catch (e) {
     console.error(e);
     resumenDiv.innerHTML = `<p>No se pudo recalcular la ruta: ${e.message}</p>`;
@@ -379,7 +663,7 @@ async function aplicarOrigenMaquinaYRecalcular(maquina) {
   await calcularRuta({ resolverOrigen: false });
 }
 
-function obtenerUbicacionGPS() {
+function iniciarSeguimientoGPS() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject({
@@ -395,13 +679,53 @@ function obtenerUbicacionGPS() {
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => resolve(position),
+    detenerSeguimientoGPS();
+
+    let primeraLectura = true;
+
+    gpsWatchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const esPrimera = primeraLectura;
+        const ok = aplicarPosicionGPS(position, { esPrimeraLectura: esPrimera });
+
+        if (!ok) {
+          if (esPrimera) {
+            detenerSeguimientoGPS();
+            reject({
+              mensaje: "Error: Coordenadas GPS inválidas recibidas del navegador."
+            });
+          }
+          return;
+        }
+
+        if (esPrimera) {
+          primeraLectura = false;
+          resolve(position);
+          return;
+        }
+
+        const estado = document.getElementById("geo-estado");
+        if (estado && origenRuta?.esGPS) {
+          estado.className = "small geo-estado ok";
+          estado.textContent =
+            "Seguimiento GPS activo: el marcador se actualiza al moverte.";
+        }
+      },
       (error) => {
-        reject({
+        const payload = {
           error,
           mensaje: mensajeErrorGeolocalizacion(error)
-        });
+        };
+        if (primeraLectura) {
+          detenerSeguimientoGPS();
+          reject(payload);
+        } else {
+          const estado = document.getElementById("geo-estado");
+          if (estado) {
+            estado.className = "small geo-estado error";
+            estado.textContent = payload.mensaje;
+          }
+        }
       },
       opcionesGPS
     );
@@ -433,41 +757,20 @@ async function confirmarUbicacionGPS() {
 
   estado.className = "small geo-estado";
   estado.textContent =
-    "Esperando respuesta del navegador (permite el acceso a la ubicación)...";
+    "Esperando señal GPS (permite el acceso a la ubicación). El marcador se actualizará al moverte...";
 
   try {
-    const position = await obtenerUbicacionGPS();
-    const { latitude, longitude, accuracy } = position.coords;
-
-    const lat = Number(latitude);
-    const lon = Number(longitude);
-
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      throw { mensaje: "Error: Coordenadas GPS inválidas recibidas del navegador." };
-    }
-
-    origenRuta = {
-      nombre: "Tu ubicación",
-      lat,
-      lon,
-      lng: lon,
-      zona: "GPS",
-      esGPS: true,
-      esMaquina: false,
-      maquinaId: null,
-      precision: accuracy
-    };
-
-    limpiarRutaEnMapa();
-    colocarMarcadorGpsUsuario(lat, lon, accuracy);
-    actualizarInfoOrigen();
-    centrarMapaEn(lat, lon, 15);
+    await iniciarSeguimientoGPS();
 
     estado.className = "small geo-estado ok";
-    estado.textContent = "¡Ubicación confirmada con éxito!";
+    estado.textContent =
+      "¡Ubicación confirmada! Seguimiento activo: el marcador se mueve contigo.";
 
+    programarGuardadoEstado();
     return true;
   } catch (err) {
+    detenerSeguimientoGPS();
+
     const mensaje =
       err.mensaje ||
       (err.error ? mensajeErrorGeolocalizacion(err.error) : String(err));
@@ -598,6 +901,49 @@ function obtenerSeleccionados() {
 function limpiarRutaEnMapa() {
   limpiarNumeroMarkers();
   limpiarCapasRuta();
+}
+
+const VISTA_INICIAL_TENERIFE = {
+  center: [28.2916, -16.6291],
+  zoom: 10
+};
+
+function reiniciarMapa() {
+  if (!map) return;
+
+  map.closePopup();
+
+  limpiarRutaEnMapa();
+  limpiarMarcadoresOrigen();
+  ocultarResumenRutaFlotante();
+
+  estadoRutaReponedor = null;
+  origenRuta = null;
+  maquinaSeleccionadaId = null;
+
+  if (marcadorSeleccionadoLayer) {
+    map.removeLayer(marcadorSeleccionadoLayer);
+    marcadorSeleccionadoLayer = null;
+  }
+
+  const select = document.getElementById("select-origen");
+  if (select) select.value = "gps";
+
+  const resumen = document.getElementById("resumen");
+  if (resumen) {
+    resumen.innerHTML = '<p>Selecciona máquinas y pulsa "Calcular ruta".</p>';
+  }
+
+  const geo = document.getElementById("geo-estado");
+  if (geo) {
+    geo.className = "small geo-estado";
+    geo.textContent =
+      "La ruta se dibuja en el mapa. Elige origen y máquinas a visitar.";
+  }
+
+  actualizarInfoOrigen();
+  map.setView(VISTA_INICIAL_TENERIFE.center, VISTA_INICIAL_TENERIFE.zoom);
+  limpiarEstadoGuardado();
 }
 
 function limpiarNumeroMarkers() {
@@ -909,6 +1255,7 @@ async function calcularRuta(opciones = {}) {
 
   if (destinos.length === 0) {
     limpiarRutaEnMapa();
+    ocultarResumenRutaFlotante();
     resumenDiv.innerHTML =
       "<p>Selecciona al menos una máquina para visitar (distinta del origen si partes de una máquina).</p>";
     return;
@@ -916,6 +1263,7 @@ async function calcularRuta(opciones = {}) {
 
   limpiarRutaEnMapa();
   limpiarNumeroMarkers();
+  ocultarResumenRutaFlotante();
   estadoRutaReponedor = null;
 
   const rutaOrdenada = ordenarPorRutaOptima(origen, destinos);
@@ -954,6 +1302,7 @@ async function calcularRuta(opciones = {}) {
     );
 
     if (!resultadoRuta?.data) {
+      ocultarResumenRutaFlotante();
       return;
     }
 
@@ -969,9 +1318,12 @@ async function calcularRuta(opciones = {}) {
       capasTraficoTomTom.mostrarEnRuta(capaRuta.getBounds());
     }
 
+    mostrarResumenRutaFlotante(datosTomTom);
+
     const resumen = rutaTomTom.summary || {};
-    distanciaKm = (resumen.lengthInMeters || 0) / 1000;
-    tiempoConduccionMin = (resumen.travelTimeInSeconds || 0) / 60;
+    const statsViaje = extraerResumenRutaTomTom(datosTomTom);
+    distanciaKm = statsViaje?.distanciaKm ?? 0;
+    tiempoConduccionMin = statsViaje?.tiempoMin ?? 0;
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
     const tiempoServicioTotal = rutaOrdenada.reduce(
@@ -1020,9 +1372,11 @@ async function calcularRuta(opciones = {}) {
     html += "</ol>";
 
     resumenDiv.innerHTML = html;
+    guardarEstadoSesion();
   } catch (e) {
     console.error("TomTom Routing:", e);
     limpiarCapasRuta();
+    ocultarResumenRutaFlotante();
 
     let html = `<p><strong>No se pudo calcular la ruta por carretera.</strong></p>`;
     html += `<p>${e.message || "Error al conectar con TomTom Routing."}</p>`;
@@ -1039,13 +1393,17 @@ async function calcularRuta(opciones = {}) {
   }
 }
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   initSelectOrigen();
   initMap();
   renderListaMaquinas(maquinasVisibles, []);
   actualizarIndicadorFiltro("", maquinasVisibles.length);
 
+  await restaurarEstadoDesdeLocalStorage();
+
   document.getElementById("btn-ruta").addEventListener("click", calcularRuta);
+
+  document.getElementById("btn-reiniciar-mapa").addEventListener("click", reiniciarMapa);
 
   document.getElementById("btn-confirmar-gps").addEventListener("click", () => {
     confirmarUbicacionGPS();
