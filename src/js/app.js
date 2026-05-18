@@ -619,10 +619,11 @@ function initMap() {
 
   queueMicrotask(() => {
     if (typeof initCapasTraficoTomTom !== "function") return;
-    capasTraficoTomTom = initCapasTraficoTomTom(
-      map,
-      window.TOMTOM_API_KEY || ""
-    );
+    const claveTomTom =
+      typeof obtenerClaveTomTom === "function"
+        ? obtenerClaveTomTom()
+        : window.TOMTOM_API_KEY || "";
+    capasTraficoTomTom = initCapasTraficoTomTom(map, claveTomTom);
     enlazarControlesTraficoTomTom(capasTraficoTomTom);
   });
 

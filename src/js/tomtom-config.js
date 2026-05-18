@@ -1,11 +1,11 @@
 /**
- * Clave manual (opcional). Si está vacía, se usa VITE_TOMTOM_API_KEY del .env
- * cargada en index.html. Obtén una clave en https://developer.tomtom.com/
+ * Clave TomTom (Traffic Flow + Incidents).
+ * Fuente única: también se lee desde .env como VITE_TOMTOM_API_KEY
  */
-const TOMTOM_API_KEY_MANUAL = "";
+const TOMTOM_API_KEY = "I1QN7ntpSqnErI9axpXW1qKCJhVeUROX";
 
-if (TOMTOM_API_KEY_MANUAL) {
-  window.TOMTOM_API_KEY = TOMTOM_API_KEY_MANUAL;
-} else if (!window.TOMTOM_API_KEY) {
-  window.TOMTOM_API_KEY = "";
+window.TOMTOM_API_KEY = TOMTOM_API_KEY;
+
+function obtenerClaveTomTom() {
+  return window.TOMTOM_API_KEY || TOMTOM_API_KEY;
 }
