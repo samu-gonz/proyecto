@@ -6,110 +6,80 @@ const ORIGEN = {
   zona: "Santa Cruz"
 };
 
-// Máquinas de ejemplo repartidas por Tenerife
-const MAQUINAS = [
-  {
-    id: 1,
-    nombre: "Máquina La Laguna Centro",
-    zona: "La Laguna",
-    lat: 28.4874,
-    lng: -16.3159,
-    tiempoServicioMin: 15
-  },
-  {
-    id: 2,
-    nombre: "Máquina La Laguna Campus",
-    zona: "La Laguna",
-    lat: 28.4827,
-    lng: -16.3200,
-    tiempoServicioMin: 20
-  },
-  {
-    id: 3,
-    nombre: "Máquina Santa Cruz Puerto",
-    zona: "Santa Cruz",
-    lat: 28.4631,
-    lng: -16.2470,
-    tiempoServicioMin: 10
-  },
-  {
-    id: 4,
-    nombre: "Máquina Candelaria",
-    zona: "Candelaria",
-    lat: 28.3540,
-    lng: -16.3720,
-    tiempoServicioMin: 15
-  },
-  {
-    id: 5,
-    nombre: "Máquina Adeje Centro",
-    zona: "Sur",
-    lat: 28.1227,
-    lng: -16.7260,
-    tiempoServicioMin: 25
-  },
-  {
-    id: 6,
-    nombre: "Máquina Los Cristianos",
-    zona: "Sur",
-    lat: 28.0496,
-    lng: -16.7160,
-    tiempoServicioMin: 20
-  },
-  ...generarMaquinasEjemplo(7, 50)
+// 62 máquinas repartidas por toda la isla (norte, sur, este, oeste y valle)
+const PUNTOS_ISLA = [
+  { nombre: "La Laguna Centro", zona: "La Laguna", lat: 28.4874, lng: -16.3159 },
+  { nombre: "La Laguna Campus", zona: "La Laguna", lat: 28.4827, lng: -16.3200 },
+  { nombre: "Santa Cruz Puerto", zona: "Santa Cruz", lat: 28.4631, lng: -16.2470 },
+  { nombre: "Candelaria Basílica", zona: "Candelaria", lat: 28.3540, lng: -16.3720 },
+  { nombre: "Adeje Centro", zona: "Sur", lat: 28.1227, lng: -16.7260 },
+  { nombre: "Los Cristianos", zona: "Sur", lat: 28.0496, lng: -16.7160 },
+  { nombre: "Plaza del Adelantado", zona: "La Laguna", lat: 28.4855, lng: -16.3142 },
+  { nombre: "San Benito", zona: "La Laguna", lat: 28.4910, lng: -16.3080 },
+  { nombre: "Guajara", zona: "La Laguna", lat: 28.4780, lng: -16.3280 },
+  { nombre: "Mesa Mota", zona: "La Laguna", lat: 28.4940, lng: -16.3250 },
+  { nombre: "Tegueste", zona: "La Laguna", lat: 28.5240, lng: -16.3390 },
+  { nombre: "Punta de Hidalgo", zona: "Norte", lat: 28.5710, lng: -16.3420 },
+  { nombre: "Tejina", zona: "Norte", lat: 28.5380, lng: -16.3610 },
+  { nombre: "García Sanabria", zona: "Santa Cruz", lat: 28.4680, lng: -16.2560 },
+  { nombre: "Mercado Nuestra Señora", zona: "Santa Cruz", lat: 28.4605, lng: -16.2495 },
+  { nombre: "Plaza España", zona: "Santa Cruz", lat: 28.4665, lng: -16.2488 },
+  { nombre: "Avenida Marítima", zona: "Santa Cruz", lat: 28.4580, lng: -16.2440 },
+  { nombre: "Anaga - Taganana", zona: "Norte", lat: 28.5500, lng: -16.1950 },
+  { nombre: "San Andrés", zona: "Santa Cruz", lat: 28.5010, lng: -16.1820 },
+  { nombre: "El Rosario", zona: "Santa Cruz", lat: 28.4510, lng: -16.3060 },
+  { nombre: "Tacoronte", zona: "Norte", lat: 28.4770, lng: -16.4100 },
+  { nombre: "El Sauzal", zona: "Norte", lat: 28.4785, lng: -16.4410 },
+  { nombre: "La Matanza", zona: "Norte", lat: 28.4650, lng: -16.4480 },
+  { nombre: "La Victoria", zona: "Norte", lat: 28.4520, lng: -16.4580 },
+  { nombre: "Santa Úrsula", zona: "Norte", lat: 28.4280, lng: -16.4920 },
+  { nombre: "La Orotava", zona: "Norte", lat: 28.3905, lng: -16.5230 },
+  { nombre: "Los Realejos", zona: "Norte", lat: 28.3870, lng: -16.5890 },
+  { nombre: "Puerto de la Cruz", zona: "Norte", lat: 28.4180, lng: -16.5490 },
+  { nombre: "Los Silos", zona: "Oeste", lat: 28.3580, lng: -16.8180 },
+  { nombre: "Garachico", zona: "Oeste", lat: 28.3725, lng: -16.7630 },
+  { nombre: "Icod de los Vinos", zona: "Oeste", lat: 28.3680, lng: -16.7130 },
+  { nombre: "Buenavista del Norte", zona: "Oeste", lat: 28.3790, lng: -16.8640 },
+  { nombre: "Santiago del Teide", zona: "Oeste", lat: 28.2950, lng: -16.8160 },
+  { nombre: "Tamaimo", zona: "Oeste", lat: 28.2200, lng: -16.8500 },
+  { nombre: "Guía de Isora", zona: "Oeste", lat: 28.2110, lng: -16.7790 },
+  { nombre: "Chío", zona: "Oeste", lat: 28.2650, lng: -16.7520 },
+  { nombre: "Playa San Juan", zona: "Oeste", lat: 28.2380, lng: -16.7380 },
+  { nombre: "Güímar", zona: "Este", lat: 28.3200, lng: -16.4150 },
+  { nombre: "Fasnia", zona: "Este", lat: 28.2980, lng: -16.4380 },
+  { nombre: "Arafo", zona: "Candelaria", lat: 28.3410, lng: -16.4210 },
+  { nombre: "Igueste", zona: "Candelaria", lat: 28.3620, lng: -16.3980 },
+  { nombre: "Playa Candelaria", zona: "Candelaria", lat: 28.3480, lng: -16.3810 },
+  { nombre: "El Socorro", zona: "Candelaria", lat: 28.3360, lng: -16.3650 },
+  { nombre: "Granadilla", zona: "Sur", lat: 28.0890, lng: -16.5770 },
+  { nombre: "El Médano", zona: "Sur", lat: 28.0450, lng: -16.5360 },
+  { nombre: "San Isidro", zona: "Sur", lat: 28.0780, lng: -16.5580 },
+  { nombre: "Las Galletas", zona: "Sur", lat: 28.0180, lng: -16.6510 },
+  { nombre: "Playa Las Américas", zona: "Sur", lat: 28.0620, lng: -16.7310 },
+  { nombre: "Costa Adeje", zona: "Sur", lat: 28.1080, lng: -16.7350 },
+  { nombre: "Fanabe", zona: "Sur", lat: 28.1150, lng: -16.7180 },
+  { nombre: "Arona", zona: "Sur", lat: 28.0990, lng: -16.6810 },
+  { nombre: "Vilaflor", zona: "Valle", lat: 28.1580, lng: -16.6350 },
+  { nombre: "San Miguel", zona: "Valle", lat: 28.0980, lng: -16.6170 },
+  { nombre: "La Esperanza", zona: "Valle", lat: 28.4450, lng: -16.4410 },
+  { nombre: "Las Cañadas del Teide", zona: "Valle", lat: 28.2720, lng: -16.6420 },
+  { nombre: "Arico", zona: "Este", lat: 28.1720, lng: -16.4780 },
+  { nombre: "Porís de Abona", zona: "Sur", lat: 28.1350, lng: -16.5120 },
+  { nombre: "Callao Salvaje", zona: "Sur", lat: 28.1420, lng: -16.7580 },
+  { nombre: "Puerto Colón", zona: "Sur", lat: 28.0780, lng: -16.7420 },
+  { nombre: "Playa Paraíso", zona: "Sur", lat: 28.1280, lng: -16.7710 },
+  { nombre: "Valle San Lorenzo", zona: "Sur", lat: 28.1320, lng: -16.6980 },
+  { nombre: "Chayofa", zona: "Sur", lat: 28.0880, lng: -16.7050 }
 ];
 
-function generarMaquinasEjemplo(idInicio, cantidad) {
-  const plantillas = [
-    { zona: "La Laguna", baseLat: 28.4874, baseLng: -16.3159, sitios: [
-      "Plaza del Adelantado", "San Benito", "Guajara", "Campus TF", "Mesa Mota",
-      "Taco", "El Ortigal", "La Cuesta", "Geneto", "Punta de Hidalgo",
-      "Tejina", "Las Mercedes", "San Cristóbal"
-    ]},
-    { zona: "Santa Cruz", baseLat: 28.4636, baseLng: -16.2518, sitios: [
-      "García Sanabria", "Mercado Nuestra Señora", "Plaza España", "Avenida Marítima",
-      "Los Llanos", "Cabildo", "Parque Bulevar", "La Salud", "El Toscal",
-      "Santa Cruz Norte", "Ofra", "Barranco Santos", "Universidad Anchieta", "Cueva Roja"
-    ]},
-    { zona: "Candelaria", baseLat: 28.3540, baseLng: -16.3720, sitios: [
-      "Basílica", "Playa Candelaria", "Barranco Hondo", "Arafo", "Igueste",
-      "Malpaís", "El Socorro", "La Caleta"
-    ]},
-    { zona: "Sur", baseLat: 28.1227, baseLng: -16.7260, sitios: [
-      "Playa Las Américas", "Costa Adeje", "Fanabe", "Los Cristianos Puerto",
-      "Las Galletas", "El Médano", "Granadilla", "San Isidro", "Chayofa",
-      "Arona Centro", "Guaza", "Callao Salvaje", "La Caleta Adeje", "Puerto Colón",
-      "Playa Paraíso", "Valle San Lorenzo"
-    ]}
-  ];
-
-  const maquinas = [];
-  let id = idInicio;
-  let i = 0;
-
-  while (maquinas.length < cantidad) {
-    const t = plantillas[i % plantillas.length];
-    const sitioIdx = Math.floor(i / plantillas.length) % t.sitios.length;
-    const sitio = t.sitios[sitioIdx];
-    const anillo = Math.floor(i / (plantillas.length * t.sitios.length));
-    const angulo = (i * 47) * (Math.PI / 180);
-    const radio = 0.006 + anillo * 0.0035;
-
-    maquinas.push({
-      id,
-      nombre: `Máquina ${sitio}`,
-      zona: t.zona,
-      lat: t.baseLat + radio * Math.cos(angulo),
-      lng: t.baseLng + radio * Math.sin(angulo),
-      tiempoServicioMin: 10 + ((id + sitioIdx) % 4) * 5
-    });
-
-    id += 1;
-    i += 1;
-  }
-
-  return maquinas;
-}
+const MAQUINAS = PUNTOS_ISLA.map((punto, index) => ({
+  id: index + 1,
+  nombre: `Máquina ${punto.nombre}`,
+  zona: punto.zona,
+  lat: punto.lat,
+  lng: punto.lng,
+  tiempoServicioMin: 10 + (index % 4) * 5
+}));
 
 let map;
 let rutaLayer = null;
