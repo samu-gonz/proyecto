@@ -160,28 +160,66 @@ function actualizarInfoOrigen() {
     `Lat: ${origen.lat.toFixed(6)}, Lng: ${origen.lng.toFixed(6)}</p>`;
 }
 
+const opcionesGPS = {
+  enableHighAccuracy: true,
+  timeout: 10000,
+  maximumAge: 0
+};
+
+function esEntornoSeguroParaGPS() {
+  if (window.isSecureContext) return true;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 function mensajeErrorGeolocalizacion(error) {
+  if (!esEntornoSeguroParaGPS()) {
+    return (
+      "Error: Permiso denegado o entorno no seguro. " +
+      "Abre la app con npm run dev (http://localhost), no con file://."
+    );
+  }
+
+  if (!error || typeof error.code === "undefined") {
+    return "Error: No se pudo obtener la ubicación.";
+  }
+
   switch (error.code) {
+    case 1:
     case error.PERMISSION_DENIED:
-      return "Permiso denegado. Activa la ubicación en el navegador.";
+      return (
+        "Error: Permiso denegado o entorno no seguro. " +
+        "Permite la ubicación en el navegador o usa localhost con npm run dev."
+      );
+    case 2:
     case error.POSITION_UNAVAILABLE:
-      return "No se pudo obtener tu posición. Comprueba el GPS.";
+      return "Error: Posición no disponible. Comprueba que el GPS esté activo.";
+    case 3:
     case error.TIMEOUT:
-      return "Tiempo de espera agotado. Vuelve a intentarlo.";
+      return "Error: Tiempo agotado (10 s). Vuelve a intentar en un lugar con mejor señal.";
     default:
-      return "Error al obtener la ubicación.";
+      return `Error: ${error.message || "Fallo al obtener la ubicación."}`;
   }
 }
 
-function colocarMarcadorRepositor(lat, lng) {
+function colocarMarcadorGpsUsuario(lat, lng, precision) {
   limpiarMarcadoresOrigen();
-  repositorMarker = L.marker([lat, lng], {
-    icon: iconoRepositor,
-    title: "Tu ubicación",
-    zIndexOffset: 1000
+
+  repositorMarker = L.circleMarker([lat, lng], {
+    radius: 12,
+    fillColor: "#0078d4",
+    color: "#ffffff",
+    weight: 3,
+    opacity: 1,
+    fillOpacity: 0.95
   })
     .addTo(map)
-    .bindPopup("<b>Tu ubicación</b><br>Punto de partida de la ruta");
+    .bindPopup(
+      `<b>Tu ubicación</b><br>Punto de partida de la ruta` +
+        (precision ? `<br>Precisión: ±${Math.round(precision)} m` : "")
+    );
+
+  repositorMarker.bringToFront();
 }
 
 function colocarMarcadorOrigenMaquina(maquina) {
@@ -255,14 +293,31 @@ async function esquivarIncidenciaTomTom(incidencia) {
     "<p>Recalculando ruta esquivando incidencia...</p>";
 
   try {
-    const datosTomTom = await obtenerRutaTomTom(
-      origen,
-      rutaOrdenada,
-      claveTomTom,
-      estadoRutaReponedor.areasEvitadas
+    const origenOk =
+      typeof normalizarPuntoRuta === "function"
+        ? normalizarPuntoRuta(origen)
+        : origen;
+    const paradasOk = rutaOrdenada.map((p) =>
+      typeof normalizarPuntoRuta === "function" ? normalizarPuntoRuta(p) : p
     );
 
-    pintarRutaTomTomEnMapa(datosTomTom, { rutaEsquivada: true });
+    const resultado = await calcularRutaTomTom(
+      map,
+      origenOk,
+      paradasOk,
+      claveTomTom,
+      estadoRutaReponedor.areasEvitadas,
+      { rutaEsquivada: true }
+    );
+
+    if (!resultado?.data) {
+      return;
+    }
+
+    const datosTomTom = resultado.data;
+    if (resultado.capa?.getBounds) {
+      encuadrarRutaEnMapa(resultado.capa.getBounds());
+    }
 
     const resumen = datosTomTom.routes[0].summary || {};
     const distanciaKm = (resumen.lengthInMeters || 0) / 1000;
@@ -290,8 +345,9 @@ function establecerOrigenMaquina(maquina, opciones = {}) {
 
   origenRuta = {
     nombre: maquina.nombre,
-    lat: maquina.lat,
-    lng: maquina.lng,
+    lat: Number(maquina.lat),
+    lon: Number(maquina.lng),
+    lng: Number(maquina.lng),
     zona: maquina.zona,
     esGPS: false,
     esMaquina: true,
@@ -321,38 +377,75 @@ async function aplicarOrigenMaquinaYRecalcular(maquina) {
 function obtenerUbicacionGPS() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
-      reject(new Error("unsupported"));
+      reject({
+        mensaje: "Error: Tu navegador no soporta geolocalización."
+      });
+      return;
+    }
+
+    if (!esEntornoSeguroParaGPS()) {
+      reject({
+        mensaje: mensajeErrorGeolocalizacion({ code: 1 })
+      });
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       (position) => resolve(position),
-      (error) => reject(error),
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0
-      }
+      (error) => {
+        reject({
+          error,
+          mensaje: mensajeErrorGeolocalizacion(error)
+        });
+      },
+      opcionesGPS
     );
   });
 }
 
-async function aplicarOrigenGPS() {
-  const estado = document.getElementById("geo-estado");
+async function confirmarUbicacionGPS() {
+  const btn = document.getElementById("btn-confirmar-gps");
   const select = document.getElementById("select-origen");
+  const estado = document.getElementById("geo-estado");
+  const textoBtnOriginal =
+    btn?.dataset.labelOriginal || btn?.textContent || "Confirmar mi ubicación actual";
 
-  select.disabled = true;
+  if (btn && !btn.dataset.labelOriginal) {
+    btn.dataset.labelOriginal = textoBtnOriginal;
+  }
+
+  if (select) {
+    select.value = "gps";
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Detectando GPS...";
+  }
+  if (select) {
+    select.disabled = true;
+  }
+
   estado.className = "small geo-estado";
-  estado.textContent = "Obteniendo ubicación...";
+  estado.textContent =
+    "Esperando respuesta del navegador (permite el acceso a la ubicación)...";
 
   try {
     const position = await obtenerUbicacionGPS();
     const { latitude, longitude, accuracy } = position.coords;
 
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      throw { mensaje: "Error: Coordenadas GPS inválidas recibidas del navegador." };
+    }
+
     origenRuta = {
       nombre: "Tu ubicación",
-      lat: latitude,
-      lng: longitude,
+      lat,
+      lon,
+      lng: lon,
       zona: "GPS",
       esGPS: true,
       esMaquina: false,
@@ -361,23 +454,39 @@ async function aplicarOrigenGPS() {
     };
 
     limpiarRutaEnMapa();
-    limpiarMarcadoresOrigen();
-    colocarMarcadorRepositor(latitude, longitude);
+    colocarMarcadorGpsUsuario(lat, lon, accuracy);
     actualizarInfoOrigen();
+    centrarMapaEn(lat, lon, 15);
 
     estado.className = "small geo-estado ok";
-    estado.textContent = `Ubicación detectada (±${Math.round(accuracy)} m).`;
-    centrarMapaEn(latitude, longitude, 14);
-  } catch (error) {
+    estado.textContent = "¡Ubicación confirmada con éxito!";
+
+    return true;
+  } catch (err) {
+    const mensaje =
+      err.mensaje ||
+      (err.error ? mensajeErrorGeolocalizacion(err.error) : String(err));
+
     estado.className = "small geo-estado error";
-    if (error.message === "unsupported") {
-      estado.textContent = "Tu navegador no soporta geolocalización.";
-    } else {
-      estado.textContent = mensajeErrorGeolocalizacion(error);
-    }
-    throw error;
+    estado.textContent = mensaje;
+    alert(mensaje);
+
+    return false;
   } finally {
-    select.disabled = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = textoBtnOriginal;
+    }
+    if (select) {
+      select.disabled = false;
+    }
+  }
+}
+
+async function aplicarOrigenGPS() {
+  const ok = await confirmarUbicacionGPS();
+  if (!ok) {
+    throw new Error("GPS no confirmado");
   }
 }
 
@@ -385,7 +494,15 @@ async function resolverOrigenDesdeSelector() {
   const valor = document.getElementById("select-origen").value;
 
   if (valor === "gps") {
-    await aplicarOrigenGPS();
+    if (
+      !origenRuta?.esGPS ||
+      typeof coordenadasValidas !== "function" ||
+      !coordenadasValidas(origenRuta)
+    ) {
+      throw new Error(
+        "Confirma tu ubicación con el botón «Confirmar mi ubicación actual» antes de calcular la ruta."
+      );
+    }
     return;
   }
 
@@ -425,7 +542,8 @@ function ordenarPorRutaOptima(origen, puntos) {
 
   const restantes = [...puntos];
   const ruta = [];
-  let actual = { lat: origen.lat, lng: origen.lng };
+  const lonOrigen = origen.lon ?? origen.lng;
+  let actual = { lat: origen.lat, lng: lonOrigen, lon: lonOrigen };
 
   while (restantes.length > 0) {
     let mejorIdx = 0;
@@ -654,13 +772,20 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
   });
 }
 
+const BOUNDS_TENERIFE = L.latLngBounds(
+  [27.92, -17.05],
+  [28.65, -16.05]
+);
+
 function initMap() {
-  map = L.map("map", { maxZoom: 22 }).setView([28.05, -16.574], 15);
+  map = L.map("map", { maxZoom: 22 });
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 22,
     attribution: "&copy; OpenStreetMap"
   }).addTo(map);
+
+  map.fitBounds(BOUNDS_TENERIFE, { padding: [30, 30] });
 
   queueMicrotask(() => {
     if (typeof initCapasTraficoTomTom !== "function") return;
@@ -746,13 +871,36 @@ async function calcularRuta(opciones = {}) {
     }
   }
 
-  const origen = obtenerOrigenRuta();
-  if (!origen) {
+  const origenRaw = obtenerOrigenRuta();
+  if (!origenRaw) {
     resumenDiv.innerHTML = "<p>Selecciona un punto de partida.</p>";
     return;
   }
+
+  if (
+    typeof coordenadasValidas !== "function" ||
+    !coordenadasValidas(origenRaw)
+  ) {
+    console.error("Origen con coordenadas inválidas:", origenRaw);
+    resumenDiv.innerHTML =
+      "<p>El origen no tiene coordenadas válidas. Si usas GPS, pulsa «Confirmar mi ubicación actual».</p>";
+    return;
+  }
+
+  const origen =
+    typeof normalizarPuntoRuta === "function"
+      ? normalizarPuntoRuta(origenRaw)
+      : origenRaw;
+
   const seleccionados = obtenerSeleccionados();
-  const destinos = obtenerDestinosRuta(seleccionados);
+  const destinosRaw = obtenerDestinosRuta(seleccionados);
+  const destinos = destinosRaw
+    .map((m) =>
+      typeof normalizarPuntoRuta === "function" ? normalizarPuntoRuta(m) : m
+    )
+    .filter((m) =>
+      typeof coordenadasValidas === "function" ? coordenadasValidas(m) : true
+    );
 
   if (destinos.length === 0) {
     limpiarRutaEnMapa();
@@ -791,14 +939,27 @@ async function calcularRuta(opciones = {}) {
       areasEvitadas: []
     };
 
-    const datosTomTom = await obtenerRutaTomTom(
+    const resultadoRuta = await calcularRutaTomTom(
+      map,
       origen,
       rutaOrdenada,
-      claveTomTom
+      claveTomTom,
+      null,
+      {}
     );
+
+    if (!resultadoRuta?.data) {
+      return;
+    }
+
+    const datosTomTom = resultadoRuta.data;
+    const capaRuta = resultadoRuta.capa;
     const rutaTomTom = datosTomTom.routes[0];
 
-    const capaRuta = pintarRutaTomTomEnMapa(datosTomTom);
+    if (capaRuta?.getBounds) {
+      encuadrarRutaEnMapa(capaRuta.getBounds());
+    }
+
     if (capasTraficoTomTom?.mostrarEnRuta && capaRuta?.getBounds) {
       capasTraficoTomTom.mostrarEnRuta(capaRuta.getBounds());
     }
@@ -880,16 +1041,16 @@ window.addEventListener("DOMContentLoaded", () => {
   actualizarIndicadorFiltro("", maquinasVisibles.length);
 
   document.getElementById("btn-ruta").addEventListener("click", calcularRuta);
+
+  document.getElementById("btn-confirmar-gps").addEventListener("click", () => {
+    confirmarUbicacionGPS();
+  });
+
   document.getElementById("select-origen").addEventListener("change", async () => {
     try {
       const valor = document.getElementById("select-origen").value;
 
       if (valor === "gps") {
-        await aplicarOrigenGPS();
-        const destinos = obtenerDestinosRuta(obtenerSeleccionados());
-        if (destinos.length > 0) {
-          await calcularRuta({ resolverOrigen: false });
-        }
         return;
       }
 

@@ -1,5 +1,5 @@
 /**
- * Ruta TomTom por carretera: geometría en legs[].points y colores por secciones TRAFFIC.
+ * Ruta TomTom: validación de coordenadas, fetch seguro y pintado por secciones.
  */
 
 const COLORES_TRAFICO = {
@@ -14,14 +14,84 @@ let miRutaActual = null;
 let miRutaGrupo = null;
 
 function lonDePunto(p) {
-  return p.lng ?? p.lon;
+  if (!p) return null;
+  const lon = p.lon ?? p.lng;
+  return lon == null ? null : Number(lon);
+}
+
+function latDePunto(p) {
+  if (!p) return null;
+  return p.lat == null ? null : Number(p.lat);
+}
+
+/**
+ * Comprueba lat/lon finitos y en rango WGS84 (TomTom: latitud,longitud).
+ */
+function coordenadasValidas(punto) {
+  const lat = latDePunto(punto);
+  const lon = lonDePunto(punto);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return false;
+  }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return false;
+  }
+  return true;
+}
+
+function normalizarPuntoRuta(punto) {
+  const lat = latDePunto(punto);
+  const lon = lonDePunto(punto);
+  return {
+    lat,
+    lon,
+    lng: lon,
+    nombre: punto?.nombre ?? "Punto"
+  };
+}
+
+function validarOrigenYParadas(origen, paradas) {
+  if (!coordenadasValidas(origen)) {
+    console.error("Coordenadas no válidas — origen:", origen);
+    return {
+      ok: false,
+      mensaje: "Origen sin coordenadas válidas (lat/lon). Confirma el GPS o elige una máquina."
+    };
+  }
+
+  const origenNorm = normalizarPuntoRuta(origen);
+  const paradasNorm = [];
+
+  (paradas || []).forEach((p, i) => {
+    if (!coordenadasValidas(p)) {
+      console.error(`Coordenadas no válidas — parada ${i}:`, p);
+      return;
+    }
+    paradasNorm.push(normalizarPuntoRuta(p));
+  });
+
+  if (paradasNorm.length === 0) {
+    return {
+      ok: false,
+      mensaje: "No hay destinos con coordenadas válidas para calcular la ruta."
+    };
+  }
+
+  return { ok: true, origen: origenNorm, paradas: paradasNorm };
+}
+
+function segmentoLatLon(punto) {
+  const lat = latDePunto(punto);
+  const lon = lonDePunto(punto);
+  return `${lat},${lon}`;
 }
 
 function construirUrlRutaTomTom(origen, paradas, apiKey) {
   const ubicaciones = [
-    `${origen.lat},${lonDePunto(origen)}`,
-    ...paradas.map((p) => `${p.lat},${lonDePunto(p)}`),
-    `${origen.lat},${lonDePunto(origen)}`
+    segmentoLatLon(origen),
+    ...paradas.map((p) => segmentoLatLon(p)),
+    segmentoLatLon(origen)
   ].join(":");
 
   const params = new URLSearchParams({
@@ -45,19 +115,16 @@ function puntosCarreteraDesdeDatos(data) {
   const legs = data?.routes?.[0]?.legs;
   if (!legs?.length) return [];
 
-  const puntosCarreteraReal = [];
+  const puntos = [];
   legs.forEach((leg) => {
     const tramo = puntosCarreteraDesdeLeg(leg);
     if (tramo.length > 0) {
-      puntosCarreteraReal.push(...tramo);
+      puntos.push(...tramo);
     }
   });
-  return puntosCarreteraReal;
+  return puntos;
 }
 
-/**
- * Puntos del tramo: seccion.points si existe; si no, slice de la polilínea global.
- */
 function puntosDesdeSeccion(seccion, puntosGlobales) {
   if (seccion.points?.length) {
     return seccion.points.map((p) => [p.latitude, p.longitude]);
@@ -83,43 +150,6 @@ function colorPorRetraso(delayInSeconds) {
   return COLORES_TRAFICO.fluido;
 }
 
-async function obtenerRutaTomTom(origen, paradas, apiKey, areasEvitar = []) {
-  const url = construirUrlRutaTomTom(origen, paradas, apiKey);
-  const opciones = { method: "GET" };
-
-  if (areasEvitar.length > 0) {
-    opciones.method = "POST";
-    opciones.headers = { "Content-Type": "application/json" };
-    opciones.body = JSON.stringify({
-      avoidAreas: { rectangles: areasEvitar }
-    });
-  }
-
-  const resp = await fetch(url, opciones);
-
-  if (!resp.ok) {
-    const cuerpo = await resp.text().catch(() => "");
-    throw new Error(
-      `TomTom Routing ${resp.status}${cuerpo ? `: ${cuerpo.slice(0, 120)}` : ""}`
-    );
-  }
-
-  const data = await resp.json();
-
-  if (!data.routes?.[0]?.legs?.length) {
-    throw new Error("TomTom no devolvió routes[0].legs.");
-  }
-
-  const puntosCarreteraReal = puntosCarreteraDesdeDatos(data);
-  if (puntosCarreteraReal.length < 2) {
-    throw new Error(
-      "TomTom no devolvió routes[0].legs[].points (sin geometría de carretera)."
-    );
-  }
-
-  return data;
-}
-
 function limpiarRutaTomTom(mapa) {
   if (miRutaActual && mapa) {
     mapa.removeLayer(miRutaActual);
@@ -131,30 +161,12 @@ function limpiarRutaTomTom(mapa) {
   }
 }
 
-function crearPolilineaTramo(mapa, puntos, color, opciones = {}) {
-  if (puntos.length < 2) return null;
-
-  const peso = opciones.rutaEsquivada ? 8 : 6;
-  const estilo = {
-    color,
-    weight: peso,
-    opacity: 0.92,
-    lineJoin: "round",
-    lineCap: "round"
-  };
-
-  if (opciones.rutaEsquivada) {
-    estilo.dashArray = "14 8";
-  }
-
-  return L.polyline(puntos, estilo);
-}
-
-/**
- * Pinta la ruta recorriendo routes[0].sections (TRAFFIC) con color según delayInSeconds.
- */
 function pintarRutaPorCarretera(mapa, data, opciones = {}) {
   limpiarRutaTomTom(mapa);
+
+  if (!data?.routes?.length) {
+    return null;
+  }
 
   const ruta = data.routes[0];
   const puntosGlobales = puntosCarreteraDesdeDatos(data);
@@ -163,9 +175,9 @@ function pintarRutaPorCarretera(mapa, data, opciones = {}) {
     return null;
   }
 
-  const secciones = (ruta.sections || [])
-    .filter((s) => s.sectionType === "TRAFFIC")
-    .sort((a, b) => (a.startPointIndex ?? 0) - (b.startPointIndex ?? 0));
+  const secciones = (ruta.sections || []).sort(
+    (a, b) => (a.startPointIndex ?? 0) - (b.startPointIndex ?? 0)
+  );
 
   miRutaGrupo = L.layerGroup();
 
@@ -184,20 +196,29 @@ function pintarRutaPorCarretera(mapa, data, opciones = {}) {
   miRutaGrupo.addTo(mapa);
 
   const anadirTramo = (puntos, color) => {
-    const linea = crearPolilineaTramo(mapa, puntos, color, opciones);
-    if (linea) {
-      miRutaGrupo.addLayer(linea);
-    }
+    if (puntos.length < 2) return;
+    miRutaGrupo.addLayer(
+      L.polyline(puntos, {
+        color,
+        weight: opciones.rutaEsquivada ? 8 : 6,
+        opacity: 0.9,
+        lineJoin: "round",
+        lineCap: "round",
+        dashArray: opciones.rutaEsquivada ? "14 8" : undefined
+      })
+    );
   };
 
-  if (secciones.length === 0) {
+  const seccionesTrafico = secciones.filter((s) => s.sectionType === "TRAFFIC");
+
+  if (seccionesTrafico.length === 0) {
     anadirTramo(puntosGlobales, COLORES_TRAFICO.fluido);
     return miRutaGrupo;
   }
 
   let indiceActual = 0;
 
-  secciones.forEach((seccion) => {
+  seccionesTrafico.forEach((seccion) => {
     const inicio = Math.max(0, seccion.startPointIndex ?? 0);
     const fin = Math.min(
       puntosGlobales.length - 1,
@@ -205,15 +226,17 @@ function pintarRutaPorCarretera(mapa, data, opciones = {}) {
     );
 
     if (inicio > indiceActual) {
-      const tramoLibre = puntosGlobales.slice(indiceActual, inicio + 1);
-      anadirTramo(tramoLibre, COLORES_TRAFICO.fluido);
+      anadirTramo(
+        puntosGlobales.slice(indiceActual, inicio + 1),
+        COLORES_TRAFICO.fluido
+      );
     }
 
-    const puntosSeccion = puntosDesdeSeccion(seccion, puntosGlobales);
-    const color = colorPorRetraso(seccion.delayInSeconds);
+    const puntosCarretera = puntosDesdeSeccion(seccion, puntosGlobales);
+    const colorTrafico = colorPorRetraso(seccion.delayInSeconds);
 
-    if (puntosSeccion.length >= 2) {
-      anadirTramo(puntosSeccion, color);
+    if (puntosCarretera.length >= 2) {
+      anadirTramo(puntosCarretera, colorTrafico);
     }
 
     indiceActual = fin;
@@ -224,6 +247,117 @@ function pintarRutaPorCarretera(mapa, data, opciones = {}) {
   }
 
   return miRutaGrupo;
+}
+
+/**
+ * Petición segura a TomTom Routing (origen + paradas + regreso).
+ * areasEvitar: array de rectángulos para POST avoidAreas.
+ */
+async function calcularRutaTomTom(
+  mapa,
+  origen,
+  paradas,
+  apiKey,
+  areasEvitar = null,
+  opcionesPintado = {}
+) {
+  const validacion = validarOrigenYParadas(origen, paradas);
+  if (!validacion.ok) {
+    console.error(validacion.mensaje);
+    if (typeof alert === "function") {
+      alert(validacion.mensaje);
+    }
+    return null;
+  }
+
+  if (!apiKey?.trim()) {
+    console.error("Falta clave API de TomTom");
+    return null;
+  }
+
+  const { origen: origenOk, paradas: paradasOk } = validacion;
+  const url = construirUrlRutaTomTom(origenOk, paradasOk, apiKey);
+  const fetchOpciones = { method: "GET" };
+
+  const areas = Array.isArray(areasEvitar) ? areasEvitar : [];
+  if (areas.length > 0) {
+    fetchOpciones.method = "POST";
+    fetchOpciones.headers = { "Content-Type": "application/json" };
+    fetchOpciones.body = JSON.stringify({
+      avoidAreas: { rectangles: areas }
+    });
+  }
+
+  try {
+    const res = await fetch(url, fetchOpciones);
+    const data = await res.json();
+
+    if (!res.ok) {
+      console.error("TomTom Routing error:", res.status, data);
+      throw new Error(
+        data?.detailedError?.message || `TomTom respondió ${res.status}`
+      );
+    }
+
+    if (!data.routes || data.routes.length === 0) {
+      alert("TomTom no encontró ninguna carretera válida entre esos puntos.");
+      return null;
+    }
+
+    const capa = mapa
+      ? pintarRutaPorCarretera(mapa, data, opcionesPintado)
+      : null;
+
+    return { data, capa };
+  } catch (error) {
+    console.error("Error en la conexión con TomTom:", error);
+    throw error;
+  }
+}
+
+async function obtenerRutaTomTom(origen, paradas, apiKey, areasEvitar = []) {
+  const validacion = validarOrigenYParadas(origen, paradas);
+  if (!validacion.ok) {
+    throw new Error(validacion.mensaje);
+  }
+
+  const url = construirUrlRutaTomTom(
+    validacion.origen,
+    validacion.paradas,
+    apiKey
+  );
+  const fetchOpciones = { method: "GET" };
+
+  if (areasEvitar.length > 0) {
+    fetchOpciones.method = "POST";
+    fetchOpciones.headers = { "Content-Type": "application/json" };
+    fetchOpciones.body = JSON.stringify({
+      avoidAreas: { rectangles: areasEvitar }
+    });
+  }
+
+  const resp = await fetch(url, fetchOpciones);
+  const data = await resp.json();
+
+  if (!resp.ok) {
+    throw new Error(
+      data?.detailedError?.message || `TomTom Routing ${resp.status}`
+    );
+  }
+
+  if (!data.routes?.length) {
+    throw new Error("TomTom no encontró ninguna carretera válida.");
+  }
+
+  if (puntosCarreteraDesdeDatos(data).length < 2) {
+    throw new Error("TomTom no devolvió geometría en legs[].points.");
+  }
+
+  return data;
+}
+
+function pintarRutaPorCarreteraDesdeDatos(mapa, data, opciones) {
+  return pintarRutaPorCarretera(mapa, data, opciones);
 }
 
 function dibujarRutaTomTomColoreada(mapa, data, opciones) {
