@@ -10,5 +10,6 @@
     "allowJs": true,
     "checkJs": false
   },
-  "include": ["src/**/*.js", "vite.config.js"]
+  "include": ["src/**/*.js", "vite.config.js"],
+  "exclude": ["src/js/tomtom-config.js"]
 }

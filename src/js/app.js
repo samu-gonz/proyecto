@@ -74,6 +74,7 @@ const MAQUINAS = PUNTOS_ISLA.map((punto, index) => ({
 }));
 
 let map;
+let capasTraficoTomTom = null;
 let rutaLayer = null;
 let numeroMarkers = [];
 let maquinaMarkers = [];
@@ -217,7 +218,8 @@ function pintarRutaEnMapa(latLngs) {
     color: "#0078d4",
     weight: 5,
     opacity: 0.9,
-    lineJoin: "round"
+    lineJoin: "round",
+    pane: map.getPane("routePane") ? "routePane" : undefined
   }).addTo(map);
 
   map.fitBounds(rutaLayer.getBounds(), { padding: [30, 30] });
@@ -614,6 +616,15 @@ function initMap() {
     maxZoom: 19,
     attribution: "&copy; OpenStreetMap"
   }).addTo(map);
+
+  queueMicrotask(() => {
+    if (typeof initCapasTraficoTomTom !== "function") return;
+    capasTraficoTomTom = initCapasTraficoTomTom(
+      map,
+      window.TOMTOM_API_KEY || ""
+    );
+    enlazarControlesTraficoTomTom(capasTraficoTomTom);
+  });
 
   actualizarInfoOrigen();
 

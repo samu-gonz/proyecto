@@ -62,9 +62,38 @@
       </div>
     </div>
 
-    <div id="map"></div>
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div class="map-controls map-controls--traffic" id="traffic-controls">
+        <strong>Tráfico TomTom</strong>
+        <label class="traffic-toggle">
+          <input type="checkbox" id="chk-trafico-flujo" checked />
+          Flujo en vivo
+        </label>
+        <label class="traffic-toggle">
+          <input type="checkbox" id="chk-trafico-incidencias" />
+          Incidencias
+        </label>
+        <div class="traffic-leyenda">
+          <span class="leyenda-item leyenda-item--fluido" data-capa="flujo" title="Clic: mostrar/ocultar flujo">Fluido</span>
+          <span class="leyenda-item leyenda-item--lento" data-capa="flujo" title="Clic: mostrar/ocultar flujo">Lento</span>
+          <span class="leyenda-item leyenda-item--congestion" data-capa="flujo" title="Clic: mostrar/ocultar flujo">Congestión</span>
+          <span class="leyenda-item leyenda-item--incidencia" data-capa="incidencias" title="Clic: mostrar/ocultar incidencias">Incidencias</span>
+        </div>
+      </div>
+      <p id="tomtom-aviso" class="tomtom-aviso" hidden>
+        Configura tu clave TomTom en <code>src/js/tomtom-config.js</code> o en
+        <code>.env</code> como <code>VITE_TOMTOM_API_KEY</code>.
+      </p>
+    </div>
   </div>
 
+  <script src="js/tomtom-config.js"></script>
+  <script type="module">
+    const claveEnv = import.meta.env.VITE_TOMTOM_API_KEY;
+    if (claveEnv) window.TOMTOM_API_KEY = claveEnv;
+  </script>
+  <script src="js/tomtom-traffic.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

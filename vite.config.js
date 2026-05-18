@@ -1,6 +1,7 @@
 export default {
-  root: 'src',
+  root: "src",
+  envDir: "..",
   server: {
     open: true
   }
-}
+};
