@@ -1,6 +1,5 @@
 /**
- * Capas raster de tráfico TomTom para Leaflet.
- * Flujo: estilo relative (claro) | Incidencias: severidad s3
+ * Tráfico TomTom solo sobre la ruta calculada (no en todo el mapa).
  */
 
 const TOMTOM_SUBDOMINIOS = ["a", "b", "c", "d"];
@@ -48,6 +47,13 @@ function initCapasTraficoTomTom(map, apiKey) {
     minZoom: 0
   };
 
+  const chkFlujo = document.getElementById("chk-trafico-flujo");
+  const chkIncidencias = document.getElementById("chk-trafico-incidencias");
+
+  let preferenciaFlujo = chkFlujo?.checked ?? true;
+  let preferenciaIncidencias = chkIncidencias?.checked ?? false;
+  let rutaBoundsActiva = null;
+
   const capaFlujo = L.tileLayer(urlFlujoTomTom(apiKey), {
     ...opcionesComunes,
     pane: "trafficFlow",
@@ -63,31 +69,56 @@ function initCapasTraficoTomTom(map, apiKey) {
     attribution: "Incidencias &copy; TomTom"
   });
 
-  const chkFlujo = document.getElementById("chk-trafico-flujo");
-  const chkIncidencias = document.getElementById("chk-trafico-incidencias");
+  function aplicarCapasSegunPreferencia() {
+    if (!rutaBoundsActiva) {
+      quitarCapaDelMapa(map, capaFlujo);
+      quitarCapaDelMapa(map, capaIncidencias);
+      return;
+    }
 
-  if (chkFlujo?.checked) {
-    capaFlujo.addTo(map);
-  }
+    capaFlujo.options.bounds = rutaBoundsActiva;
+    capaIncidencias.options.bounds = rutaBoundsActiva;
 
-  if (chkIncidencias?.checked) {
-    capaIncidencias.addTo(map);
+    if (preferenciaFlujo) {
+      if (!map.hasLayer(capaFlujo)) capaFlujo.addTo(map);
+      capaFlujo.redraw();
+    } else {
+      quitarCapaDelMapa(map, capaFlujo);
+    }
+
+    if (preferenciaIncidencias) {
+      if (!map.hasLayer(capaIncidencias)) capaIncidencias.addTo(map);
+      capaIncidencias.redraw();
+    } else {
+      quitarCapaDelMapa(map, capaIncidencias);
+    }
   }
 
   return {
     flow: capaFlujo,
     incidents: capaIncidencias,
-    setFlowVisible(visible) {
+    hayRutaActiva() {
+      return rutaBoundsActiva !== null;
+    },
+    mostrarEnRuta(bounds) {
+      rutaBoundsActiva = bounds.pad(0.12);
+      aplicarCapasSegunPreferencia();
+    },
+    ocultarDeRuta() {
+      rutaBoundsActiva = null;
       quitarCapaDelMapa(map, capaFlujo);
-      if (visible) capaFlujo.addTo(map);
+      quitarCapaDelMapa(map, capaIncidencias);
+    },
+    setFlowVisible(visible) {
+      preferenciaFlujo = visible;
+      aplicarCapasSegunPreferencia();
     },
     setIncidentsVisible(visible) {
-      quitarCapaDelMapa(map, capaIncidencias);
-      if (visible) capaIncidencias.addTo(map);
+      preferenciaIncidencias = visible;
+      aplicarCapasSegunPreferencia();
     },
     redraw() {
-      if (map.hasLayer(capaFlujo)) capaFlujo.redraw();
-      if (map.hasLayer(capaIncidencias)) capaIncidencias.redraw();
+      if (rutaBoundsActiva) aplicarCapasSegunPreferencia();
     }
   };
 }

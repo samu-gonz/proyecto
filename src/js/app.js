@@ -222,7 +222,12 @@ function pintarRutaEnMapa(latLngs) {
     pane: map.getPane("routePane") ? "routePane" : undefined
   }).addTo(map);
 
-  map.fitBounds(rutaLayer.getBounds(), { padding: [30, 30] });
+  const boundsRuta = rutaLayer.getBounds();
+  map.fitBounds(boundsRuta, { padding: [30, 30] });
+
+  if (capasTraficoTomTom) {
+    capasTraficoTomTom.mostrarEnRuta(boundsRuta);
+  }
 }
 
 function puntosRutaComoLatLng(origen, rutaOrdenada) {
@@ -429,6 +434,9 @@ function limpiarRutaEnMapa() {
   if (rutaLayer) {
     map.removeLayer(rutaLayer);
     rutaLayer = null;
+  }
+  if (capasTraficoTomTom) {
+    capasTraficoTomTom.ocultarDeRuta();
   }
 }
 
