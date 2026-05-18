@@ -40,17 +40,120 @@ async function obtenerRutaTomTom(origen, paradas, apiKey) {
     throw new Error("TomTom no devolvió ninguna ruta.");
   }
 
-  return data.routes[0];
+  const ruta = data.routes[0];
+  const puntos = extraerPuntosRutaTomTom(ruta);
+  if (puntos.length < 2) {
+    throw new Error(
+      "TomTom no devolvió geometría detallada de la ruta (legs.points / encodedPolyline)."
+    );
+  }
+
+  return ruta;
 }
 
+function puntoALatLng(p) {
+  if (!p) return null;
+
+  if (Array.isArray(p) && p.length >= 2) {
+    return [Number(p[0]), Number(p[1])];
+  }
+
+  const lat = p.latitude ?? p.lat;
+  const lng = p.longitude ?? p.lng ?? p.lon;
+  if (lat == null || lng == null) return null;
+
+  return [Number(lat), Number(lng)];
+}
+
+/**
+ * Decodifica la polyline codificada de TomTom (formato Google, precisión 5 o 7).
+ */
+function decodificarPolylineTomTom(encoded, precision) {
+  if (!encoded || typeof encoded !== "string") return [];
+
+  const factor = Math.pow(10, precision ?? 5);
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  const coordinates = [];
+
+  while (index < encoded.length) {
+    let byte;
+    let shift = 0;
+    let result = 0;
+
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+
+    const deltaLat = result & 1 ? ~(result >> 1) : result >> 1;
+    lat += deltaLat;
+
+    shift = 0;
+    result = 0;
+
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+
+    const deltaLng = result & 1 ? ~(result >> 1) : result >> 1;
+    lng += deltaLng;
+
+    coordinates.push([lat / factor, lng / factor]);
+  }
+
+  return coordinates;
+}
+
+function agregarPuntosRuta(destino, nuevos) {
+  nuevos.forEach((punto) => {
+    const latLng = puntoALatLng(punto);
+    if (!latLng || Number.isNaN(latLng[0]) || Number.isNaN(latLng[1])) {
+      return;
+    }
+    destino.push(latLng);
+  });
+}
+
+/**
+ * Geometría completa de la ruta: concatena legs[].points en orden (sin deduplicar:
+ * los índices de sections TRAFFIC coinciden con esa secuencia). Si faltan points,
+ * decodifica legs[].encodedPolyline.
+ */
 function extraerPuntosRutaTomTom(ruta) {
   const puntos = [];
+  const legs = ruta.legs || [];
 
-  (ruta.legs || []).forEach((leg) => {
-    (leg.points || []).forEach((p) => {
-      puntos.push([p.latitude, p.longitude]);
-    });
+  legs.forEach((leg) => {
+    const listaPuntos = leg.points || [];
+    if (listaPuntos.length > 0) {
+      agregarPuntosRuta(puntos, listaPuntos);
+      return;
+    }
+
+    if (leg.encodedPolyline) {
+      const decodificados = decodificarPolylineTomTom(
+        leg.encodedPolyline,
+        leg.encodedPolylinePrecision
+      );
+      agregarPuntosRuta(puntos, decodificados);
+    }
   });
+
+  if (puntos.length >= 2) {
+    return puntos;
+  }
+
+  if (ruta.encodedPolyline) {
+    return decodificarPolylineTomTom(
+      ruta.encodedPolyline,
+      ruta.encodedPolylinePrecision
+    );
+  }
 
   return puntos;
 }
@@ -83,6 +186,55 @@ function colorSegunTramo(section) {
   return COLORES_TRAFICO.fluido;
 }
 
+function coloresPorIndiceRuta(rutaTomTom, numPuntos) {
+  const colores = new Array(numPuntos).fill(COLORES_TRAFICO.fluido);
+  const secciones = (rutaTomTom.sections || []).filter(
+    (s) => s.sectionType === "TRAFFIC"
+  );
+
+  secciones.forEach((seccion) => {
+    const inicio = Math.max(0, seccion.startPointIndex ?? 0);
+    const fin = Math.min(
+      numPuntos - 1,
+      seccion.endPointIndex ?? inicio
+    );
+    const color = colorSegunTramo(seccion);
+
+    for (let i = inicio; i <= fin; i++) {
+      colores[i] = color;
+    }
+  });
+
+  return colores;
+}
+
+function agruparTramosPorColor(puntos, colores) {
+  if (puntos.length < 2) return [];
+
+  const tramos = [];
+  let inicio = 0;
+  let colorActual = colores[0] ?? COLORES_TRAFICO.fluido;
+
+  for (let i = 1; i < puntos.length; i++) {
+    const color = colores[i] ?? COLORES_TRAFICO.fluido;
+    if (color !== colorActual) {
+      tramos.push({
+        puntos: puntos.slice(inicio, i + 1),
+        color: colorActual
+      });
+      inicio = i;
+      colorActual = color;
+    }
+  }
+
+  tramos.push({
+    puntos: puntos.slice(inicio),
+    color: colorActual
+  });
+
+  return tramos;
+}
+
 function crearPolilineaTramo(puntos, color, mapa) {
   if (puntos.length < 2) return null;
 
@@ -101,53 +253,13 @@ function dibujarRutaTomTomColoreada(mapa, rutaTomTom) {
   if (puntos.length < 2) return null;
 
   const grupo = L.layerGroup();
-  const seccionesTrafico = (rutaTomTom.sections || [])
-    .filter((s) => s.sectionType === "TRAFFIC")
-    .sort((a, b) => a.startPointIndex - b.startPointIndex);
+  const colores = coloresPorIndiceRuta(rutaTomTom, puntos.length);
+  const tramos = agruparTramosPorColor(puntos, colores);
 
-  if (seccionesTrafico.length === 0) {
-    const linea = crearPolilineaTramo(puntos, COLORES_TRAFICO.fluido, mapa);
+  tramos.forEach(({ puntos: coords, color }) => {
+    const linea = crearPolilineaTramo(coords, color, mapa);
     if (linea) grupo.addLayer(linea);
-    grupo.addTo(mapa);
-    return grupo;
-  }
-
-  let indiceActual = 0;
-
-  seccionesTrafico.forEach((seccion) => {
-    const inicio = seccion.startPointIndex;
-    const fin = seccion.endPointIndex;
-
-    if (inicio > indiceActual) {
-      const tramoLibre = puntos.slice(indiceActual, inicio + 1);
-      const lineaLibre = crearPolilineaTramo(
-        tramoLibre,
-        COLORES_TRAFICO.fluido,
-        mapa
-      );
-      if (lineaLibre) grupo.addLayer(lineaLibre);
-    }
-
-    const tramoTrafico = puntos.slice(inicio, fin + 1);
-    const lineaTrafico = crearPolilineaTramo(
-      tramoTrafico,
-      colorSegunTramo(seccion),
-      mapa
-    );
-    if (lineaTrafico) grupo.addLayer(lineaTrafico);
-
-    indiceActual = fin;
   });
-
-  if (indiceActual < puntos.length - 1) {
-    const tramoFinal = puntos.slice(indiceActual);
-    const lineaFinal = crearPolilineaTramo(
-      tramoFinal,
-      COLORES_TRAFICO.fluido,
-      mapa
-    );
-    if (lineaFinal) grupo.addLayer(lineaFinal);
-  }
 
   grupo.addTo(mapa);
   return grupo;
