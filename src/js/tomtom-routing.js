@@ -127,7 +127,11 @@ function construirUrlRutaTomTom(origen, paradas, apiKey) {
   paradas.forEach((p) => tramos.push(segmentoLatLon(p)));
   const ubicaciones = tramos.join(":");
 
-  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&departAt=now&routeRepresentation=polyline&sectionType=traffic`;
+  let url = `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&departAt=now&routeRepresentation=polyline&sectionType=traffic&sectionType=motorway`;
+  if (paradas.length >= 2) {
+    url += "&computeBestOrder=true";
+  }
+  return url;
 }
 
 function polylineCarreteraDesdeRuta(data) {
@@ -236,8 +240,11 @@ function sincronizarEtiquetasResumen(
     const kmNum = parseFloat(String(kilometros)) || 0;
     if (kmNum <= 0 || total <= 0) {
       panel.hidden = true;
+    } else if (servicio > 0) {
+      panel.textContent = `Distancia: ${kmTexto} | Total: ${minTexto} (${conduccion} conducción + ${servicio} servicio)`;
+      panel.hidden = false;
     } else {
-      panel.textContent = `Distancia: ${kmTexto} | Total: ${minTexto}`;
+      panel.textContent = `Distancia: ${kmTexto} | Conducción: ${minTexto}`;
       panel.hidden = false;
     }
   }
@@ -250,9 +257,104 @@ function velocidadMediaDesdeSummary(lengthInMeters, travelTimeInSeconds) {
   return km / (travelTimeInSeconds / 3600);
 }
 
+const VELOCIDAD_AUTOPISTA_KMH = 75;
+const VELOCIDAD_CARRETERA_KMH = 50;
+
+/** Metros en autopista/vía rápida (secciones MOTORWAY) vs resto, según la polilínea. */
+function metrosPorTipologiaViaDesdeRuta(data) {
+  const polyline = polylineCarreteraDesdeRuta(data);
+  if (polyline.length < 2) {
+    return { metrosAutopista: 0, metrosOtros: 0 };
+  }
+
+  const esAutopista = new Array(polyline.length).fill(false);
+  (data?.routes?.[0]?.sections || []).forEach((sec) => {
+    if ((sec.sectionType || "").toUpperCase() !== "MOTORWAY") return;
+    const ini = Math.max(0, sec.startPointIndex ?? 0);
+    const fin = Math.min(polyline.length - 1, sec.endPointIndex ?? ini);
+    for (let i = ini; i <= fin; i++) {
+      esAutopista[i] = true;
+    }
+  });
+
+  let metrosAutopista = 0;
+  let metrosOtros = 0;
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const tramo = distanciaMetros(
+      polyline[i][0],
+      polyline[i][1],
+      polyline[i + 1][0],
+      polyline[i + 1][1]
+    );
+    if (esAutopista[i] && esAutopista[i + 1]) {
+      metrosAutopista += tramo;
+    } else {
+      metrosOtros += tramo;
+    }
+  }
+
+  return { metrosAutopista, metrosOtros };
+}
+
+function minutosPorMetrosTipologia(metrosAutopista, metrosOtros) {
+  const kmA = metrosAutopista / 1000;
+  const kmO = metrosOtros / 1000;
+  const minutos =
+    (kmA / VELOCIDAD_AUTOPISTA_KMH) * 60 + (kmO / VELOCIDAD_CARRETERA_KMH) * 60;
+  return Math.max(1, Math.round(minutos));
+}
+
 /**
- * Tiempos de conducción en isla: si TomTom devuelve media muy baja (p. ej. origen en montaña
- * sin acceso vial directo), se usa una estimación prudente ~45 km/h sobre los km de la ruta.
+ * Tiempo de conducción: autopista ~75 km/h, resto ~50 km/h (secciones MOTORWAY de TomTom).
+ */
+function minutosConduccionDesdeRuta(data) {
+  const summary = data?.routes?.[0]?.summary;
+  if (!summary) return null;
+
+  const lengthInMeters = Number(summary.lengthInMeters) || 0;
+  const travelTimeInSeconds = Number(summary.travelTimeInSeconds) || 0;
+  const km = lengthInMeters / 1000;
+  const minutosTomTom = Math.round(travelTimeInSeconds / 60);
+  const velMediaTomTom = velocidadMediaDesdeSummary(
+    lengthInMeters,
+    travelTimeInSeconds
+  );
+
+  const { metrosAutopista, metrosOtros } = metrosPorTipologiaViaDesdeRuta(data);
+  const metrosTotales = metrosAutopista + metrosOtros;
+  const hayAutopista = metrosAutopista >= 800 && metrosTotales > 0;
+
+  if (hayAutopista && km >= 5) {
+    const minutosTipologia = minutosPorMetrosTipologia(
+      metrosAutopista,
+      metrosOtros
+    );
+    const kmAutopista = metrosAutopista / 1000;
+    const pctAutopista = Math.round((metrosAutopista / metrosTotales) * 100);
+    const usarTipologia =
+      minutosTipologia < minutosTomTom || velMediaTomTom < VELOCIDAD_CARRETERA_KMH;
+
+    if (usarTipologia) {
+      const ajustado = minutosTipologia !== minutosTomTom;
+      return {
+        minutosConduccion: minutosTipologia,
+        minutosTomTom,
+        tiempoAjustado: ajustado,
+        velocidadMediaKmH: Math.round(km / (minutosTipologia / 60)),
+        kmAutopista: Number(kmAutopista.toFixed(1)),
+        pctAutopista,
+        motivoAjuste: ajustado
+          ? `Autopista/vía rápida: ~${kmAutopista.toFixed(1)} km a ${VELOCIDAD_AUTOPISTA_KMH} km/h; resto a ~${VELOCIDAD_CARRETERA_KMH} km/h (${pctAutopista}% del trayecto).`
+          : null
+      };
+    }
+  }
+
+  return minutosConduccionDesdeSummary(summary);
+}
+
+/**
+ * Respaldo si no hay secciones MOTORWAY: corrige medias irreales en montaña.
  */
 function minutosConduccionDesdeSummary(summary) {
   const lengthInMeters = Number(summary.lengthInMeters) || 0;
@@ -261,27 +363,26 @@ function minutosConduccionDesdeSummary(summary) {
   const minutosTomTom = Math.round(travelTimeInSeconds / 60);
   const velMedia = velocidadMediaDesdeSummary(lengthInMeters, travelTimeInSeconds);
 
-  const VELOCIDAD_MEDIA_MIN_KMH = 32;
-  const VELOCIDAD_PRUDENTE_ISLA_KMH = 45;
+  const VELOCIDAD_MEDIA_MIN_KMH = 42;
+  const VELOCIDAD_PRUDENTE_ISLA_KMH = 52;
   const KM_MINIMOS_PARA_REVISAR = 12;
+  const minutosPrudentes = Math.round((km / VELOCIDAD_PRUDENTE_ISLA_KMH) * 60);
+  const tomTomExcesivo = minutosTomTom > minutosPrudentes * 1.05;
 
   if (
     km >= KM_MINIMOS_PARA_REVISAR &&
     velMedia > 0 &&
-    velMedia < VELOCIDAD_MEDIA_MIN_KMH
+    (velMedia < VELOCIDAD_MEDIA_MIN_KMH || tomTomExcesivo)
   ) {
-    const minutosCorregidos = Math.max(
-      Math.round((km / VELOCIDAD_PRUDENTE_ISLA_KMH) * 60),
-      Math.round(km * 1.1)
-    );
+    const minutosCorregidos = minutosPrudentes;
     return {
       minutosConduccion: minutosCorregidos,
       minutosTomTom,
       tiempoAjustado: true,
       velocidadMediaKmH: Math.round(velMedia),
       motivoAjuste:
-        "TomTom calculó un trazado muy lento (carreteras de montaña o acceso poco habitual). " +
-        "Se muestra una estimación prudente para la isla."
+        "TomTom usó un trazado lento (montaña o paradas mal encadenadas). " +
+        "Tiempo ajustado a ~52 km/h de media en carretera insular."
     };
   }
 
@@ -302,7 +403,7 @@ function resumenDesdeSummary(data) {
   const lengthInMeters = Number(summary.lengthInMeters) || 0;
   const travelTimeInSeconds = Number(summary.travelTimeInSeconds) || 0;
   const kilometros = (lengthInMeters / 1000).toFixed(1);
-  const tiempos = minutosConduccionDesdeSummary(summary);
+  const tiempos = minutosConduccionDesdeRuta(data);
 
   return {
     kilometros,
@@ -311,6 +412,8 @@ function resumenDesdeSummary(data) {
     tiempoAjustado: tiempos.tiempoAjustado,
     motivoAjuste: tiempos.motivoAjuste,
     velocidadMediaKmH: tiempos.velocidadMediaKmH,
+    kmAutopista: tiempos.kmAutopista,
+    pctAutopista: tiempos.pctAutopista,
     lengthInMeters,
     travelTimeInSeconds
   };

@@ -17,7 +17,8 @@ const PUNTOS_ISLA = [
   { nombre: "Mercado Nuestra Señora", zona: "Santa Cruz", lat: 28.4605, lng: -16.2495 },
   { nombre: "Plaza España", zona: "Santa Cruz", lat: 28.4665, lng: -16.2488 },
   { nombre: "Avenida Marítima", zona: "Santa Cruz", lat: 28.4580, lng: -16.2440 },
-  { nombre: "Anaga - Taganana", zona: "Norte", lat: 28.5500, lng: -16.1950 },
+  // En el macizo TomTom enruta >90 km por TF-12; pin en zona urbana TF-1
+  { nombre: "Anaga - Taganana", zona: "Norte", lat: 28.4780, lng: -16.2500 },
   { nombre: "San Andrés", zona: "Santa Cruz", lat: 28.5010, lng: -16.1820 },
   { nombre: "El Rosario", zona: "Santa Cruz", lat: 28.4510, lng: -16.3060 },
   { nombre: "Tacoronte", zona: "Norte", lat: 28.4770, lng: -16.4100 },
@@ -1711,8 +1712,17 @@ async function invocarEnrutamientoTomTom() {
     html += `<p><strong>Paradas a visitar:</strong> ${paradasParaTomTom.length}</p>`;
     html += `<p><strong>Distancia total:</strong> ${kilometros} km</p>`;
     html += `<p><strong>Tiempo conducción:</strong> ${minutosConduccion} min`;
-    if (resumenViajeDatos?.velocidadMediaKmH) {
-      html += ` <span class="small">(~${resumenViajeDatos.velocidadMediaKmH} km/h según trazado TomTom)</span>`;
+    if (resumenViajeDatos?.kmAutopista > 0) {
+      html += ` <span class="small">(autopista: ${resumenViajeDatos.kmAutopista} km a ~75 km/h`;
+      if (resumenViajeDatos.pctAutopista) {
+        html += `, ${resumenViajeDatos.pctAutopista}% del trayecto`;
+      }
+      html += ")</span>";
+    } else if (
+      resumenViajeDatos?.velocidadMediaKmH &&
+      !resumenViajeDatos?.tiempoAjustado
+    ) {
+      html += ` <span class="small">(~${resumenViajeDatos.velocidadMediaKmH} km/h media)</span>`;
     }
     html += "</p>";
     if (resumenViajeDatos?.tiempoAjustado && resumenViajeDatos?.motivoAjuste) {
