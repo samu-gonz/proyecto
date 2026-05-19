@@ -88,7 +88,7 @@ function segmentoLatLon(punto) {
   return `${lat},${lon}`;
 }
 
-function construirUrlRutaTomTom(origen, paradas, apiKey) {
+function construirUrlRutaTomTom(origen, paradas, apiKey, conReporteIncidents = true) {
   const ubicaciones = [
     segmentoLatLon(origen),
     ...paradas.map((p) => segmentoLatLon(p)),
@@ -99,11 +99,36 @@ function construirUrlRutaTomTom(origen, paradas, apiKey) {
     key: apiKey,
     routeType: "fastest",
     traffic: "true",
+    travelMode: "car",
     routeRepresentation: "polyline",
-    sectionType: "traffic"
+    sectionType: "traffic",
+    computeTravelTimeFor: "all"
   });
 
+  if (conReporteIncidents) {
+    params.set("trafficModel", "best");
+    params.set("report", "incidents");
+  }
+
   return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?${params.toString()}`;
+}
+
+function debeReintentarSinReportIncidents(respuesta, status) {
+  if (status !== 400 || !respuesta) return false;
+  const msg = String(
+    respuesta.detailedError?.message || respuesta.errorText || ""
+  ).toLowerCase();
+  return (
+    msg.includes("report") ||
+    msg.includes("trafficmodel") ||
+    msg.includes("traffic model")
+  );
+}
+
+async function solicitarRutaTomTom(url, fetchOpciones) {
+  const res = await fetch(url, fetchOpciones);
+  const data = await res.json();
+  return { res, data };
 }
 
 function puntosCarreteraDesdeLeg(leg) {
@@ -175,9 +200,16 @@ function extraerResumenRutaTomTom(data) {
   const lengthInMeters = Number(summary.lengthInMeters);
   const travelTimeInSeconds = Number(summary.travelTimeInSeconds);
 
+  const kilometros = Number.isFinite(lengthInMeters)
+    ? parseFloat((lengthInMeters / 1000).toFixed(1))
+    : 0;
+  const minutosConduccion = Number.isFinite(travelTimeInSeconds)
+    ? Math.round(travelTimeInSeconds / 60)
+    : 0;
+
   return {
-    distanciaKm: Number.isFinite(lengthInMeters) ? lengthInMeters / 1000 : 0,
-    tiempoMin: Number.isFinite(travelTimeInSeconds) ? travelTimeInSeconds / 60 : 0,
+    distanciaKm: kilometros,
+    minutosConduccion,
     lengthInMeters,
     travelTimeInSeconds
   };
@@ -298,7 +330,6 @@ async function calcularRutaTomTom(
   }
 
   const { origen: origenOk, paradas: paradasOk } = validacion;
-  const url = construirUrlRutaTomTom(origenOk, paradasOk, apiKey);
   const fetchOpciones = { method: "GET" };
 
   const areas = Array.isArray(areasEvitar) ? areasEvitar : [];
@@ -311,8 +342,17 @@ async function calcularRutaTomTom(
   }
 
   try {
-    const res = await fetch(url, fetchOpciones);
-    const data = await res.json();
+    let url = construirUrlRutaTomTom(origenOk, paradasOk, apiKey, true);
+    let { res, data } = await solicitarRutaTomTom(url, fetchOpciones);
+
+    if (!res.ok && debeReintentarSinReportIncidents(data, res.status)) {
+      console.warn(
+        "TomTom no aceptó report=incidents o trafficModel=best en esta cuenta; " +
+          "reintentando con parámetros compatibles."
+      );
+      url = construirUrlRutaTomTom(origenOk, paradasOk, apiKey, false);
+      ({ res, data } = await solicitarRutaTomTom(url, fetchOpciones));
+    }
 
     if (!res.ok) {
       console.error("TomTom Routing error:", res.status, data);
@@ -350,11 +390,6 @@ async function obtenerRutaTomTom(origen, paradas, apiKey, areasEvitar = []) {
     throw new Error(validacion.mensaje);
   }
 
-  const url = construirUrlRutaTomTom(
-    validacion.origen,
-    validacion.paradas,
-    apiKey
-  );
   const fetchOpciones = { method: "GET" };
 
   if (areasEvitar.length > 0) {
@@ -365,8 +400,23 @@ async function obtenerRutaTomTom(origen, paradas, apiKey, areasEvitar = []) {
     });
   }
 
-  const resp = await fetch(url, fetchOpciones);
-  const data = await resp.json();
+  let url = construirUrlRutaTomTom(
+    validacion.origen,
+    validacion.paradas,
+    apiKey,
+    true
+  );
+  let { res: resp, data } = await solicitarRutaTomTom(url, fetchOpciones);
+
+  if (!resp.ok && debeReintentarSinReportIncidents(data, resp.status)) {
+    url = construirUrlRutaTomTom(
+      validacion.origen,
+      validacion.paradas,
+      apiKey,
+      false
+    );
+    ({ res: resp, data } = await solicitarRutaTomTom(url, fetchOpciones));
+  }
 
   if (!resp.ok) {
     throw new Error(

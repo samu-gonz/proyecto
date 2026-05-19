@@ -30,8 +30,8 @@ const ICONOS_POR_TIPO = {
   roadworks: { emoji: "🚧", clase: "obras", etiqueta: "Obras" },
   ROAD_CLOSURE: { emoji: "🛑", clase: "corte", etiqueta: "Corte de vía" },
   "road-closed": { emoji: "🛑", clase: "corte", etiqueta: "Corte de vía" },
-  JAM: { emoji: "🚦", clase: "atasco", etiqueta: "Tráfico denso" },
-  jam: { emoji: "🚦", clase: "atasco", etiqueta: "Tráfico denso" },
+  JAM: { emoji: "🚦", clase: "atasco", etiqueta: "Tráfico denso / semáforos" },
+  jam: { emoji: "🚦", clase: "atasco", etiqueta: "Tráfico denso / semáforos" },
   LANE_CLOSED: { emoji: "⛔", clase: "carril", etiqueta: "Carril cerrado" },
   "lane-closed": { emoji: "⛔", clase: "carril", etiqueta: "Carril cerrado" },
   ACCIDENT: { emoji: "💥", clase: "accidente", etiqueta: "Accidente" },
@@ -272,25 +272,41 @@ function seccionesTraficoDeRuta(ruta) {
   return [...enRuta, ...enLegs];
 }
 
+function deduplicarIncidencias(incidencias) {
+  const vistos = new Set();
+  return incidencias.filter((inc) => {
+    if (!inc?.id || vistos.has(inc.id)) return false;
+    vistos.add(inc.id);
+    return true;
+  });
+}
+
+/**
+ * Incidencias exclusivas del trayecto: routes[0].incidents o secciones TRAFFIC de la ruta.
+ */
 function extraerIncidenciasDeRuta(data) {
   const ruta = data?.routes?.[0];
   if (!ruta) return [];
 
+  let incidencias = [];
+
   if (Array.isArray(ruta.incidents) && ruta.incidents.length > 0) {
-    return ruta.incidents
+    incidencias = ruta.incidents
       .map((inc, i) => normalizarIncidenciaRutaTomTom(inc, i))
+      .filter(Boolean);
+  } else {
+    const puntosGlobales =
+      typeof puntosCarreteraDesdeDatos === "function"
+        ? puntosCarreteraDesdeDatos(data)
+        : [];
+
+    incidencias = seccionesTraficoDeRuta(ruta)
+      .filter((s) => esSeccionIncidenciaEnRuta(s))
+      .map((s, i) => normalizarIncidenciaDesdeSeccion(s, puntosGlobales, i))
       .filter(Boolean);
   }
 
-  const puntosGlobales =
-    typeof puntosCarreteraDesdeDatos === "function"
-      ? puntosCarreteraDesdeDatos(data)
-      : [];
-
-  return seccionesTraficoDeRuta(ruta)
-    .filter((s) => esSeccionIncidenciaEnRuta(s))
-    .map((s, i) => normalizarIncidenciaDesdeSeccion(s, puntosGlobales, i))
-    .filter(Boolean);
+  return deduplicarIncidencias(incidencias);
 }
 
 function esSeccionIncidenciaEnRuta(seccion) {
@@ -481,16 +497,7 @@ async function pintarIncidenciasDeRuta(map, data, apiKey = "") {
   if (!map) return { total: 0, capa: null };
 
   ultimosDatosRutaIncidencias = data;
-
-  let incidencias = extraerIncidenciasDeRuta(data);
-
-  if (!incidencias.length && apiKey?.trim()) {
-    try {
-      incidencias = await obtenerIncidenciasEnCorredorRuta(data, apiKey);
-    } catch (err) {
-      console.warn("Incidencias en corredor de ruta:", err);
-    }
-  }
+  const incidencias = extraerIncidenciasDeRuta(data);
 
   if (!incidenciasVisiblesEnUi()) {
     limpiarMarcadoresIncidencias(map);

@@ -528,7 +528,7 @@ function mostrarResumenRutaFlotante(datosTomTom) {
     return;
   }
 
-  panel.textContent = `Distancia: ${stats.distanciaKm.toFixed(1)} km | Tiempo: ${stats.tiempoMin.toFixed(0)} min`;
+  panel.textContent = `Distancia: ${stats.distanciaKm.toFixed(1)} km | Tiempo: ${stats.minutosConduccion} min`;
   panel.hidden = false;
 }
 
@@ -607,13 +607,15 @@ async function esquivarIncidenciaTomTom(incidencia) {
 
     mostrarResumenRutaFlotante(datosTomTom);
 
-    const stats = extraerResumenRutaTomTom(datosTomTom);
-    const distanciaKm = stats?.distanciaKm ?? 0;
-    const tiempoMin = stats?.tiempoMin ?? 0;
+    const resumen = datosTomTom.routes[0].summary || {};
+    const kilometros = ((resumen.lengthInMeters || 0) / 1000).toFixed(1);
+    const minutosConduccion = Math.round(
+      (resumen.travelTimeInSeconds || 0) / 60
+    );
 
     let html = `<p><strong>Ruta alternativa (esquivando incidencia)</strong></p>`;
     html += `<p>${incidencia.descripcion}</p>`;
-    html += `<p><strong>Distancia:</strong> ${distanciaKm.toFixed(1)} km · <strong>Tiempo:</strong> ${tiempoMin.toFixed(0)} min</p>`;
+    html += `<p><strong>Distancia:</strong> ${kilometros} km · <strong>Tiempo conducción:</strong> ${minutosConduccion} min</p>`;
     html += `<p class="small">Línea fucsia = ruta que evita la zona marcada.</p>`;
     resumenDiv.innerHTML = html;
     guardarEstadoSesion();
@@ -1286,7 +1288,7 @@ async function calcularRuta(opciones = {}) {
 
   try {
     let distanciaKm = 0;
-    let tiempoConduccionMin = 0;
+    let minutosConduccion = 0;
     let avisoRuta = "";
     let statsTrafico = null;
 
@@ -1339,16 +1341,15 @@ async function calcularRuta(opciones = {}) {
     mostrarResumenRutaFlotante(datosTomTom);
 
     const resumen = rutaTomTom.summary || {};
-    const statsViaje = extraerResumenRutaTomTom(datosTomTom);
-    distanciaKm = statsViaje?.distanciaKm ?? 0;
-    tiempoConduccionMin = statsViaje?.tiempoMin ?? 0;
+    const kilometros = ((resumen.lengthInMeters || 0) / 1000).toFixed(1);
+    minutosConduccion = Math.round((resumen.travelTimeInSeconds || 0) / 60);
+    distanciaKm = parseFloat(kilometros);
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
     const tiempoServicioTotal = rutaOrdenada.reduce(
       (acc, p) => acc + tiempoServicioMinutos(p),
       0
     );
-    const tiempoTotal = tiempoConduccionMin + tiempoServicioTotal;
 
     let html = "";
     if (avisoRuta) html += `<p>${avisoRuta}</p>`;
@@ -1362,8 +1363,8 @@ async function calcularRuta(opciones = {}) {
     }
     html += `<p><strong>Paradas a visitar:</strong> ${rutaOrdenada.length}</p>`;
     if (distanciaKm > 0) {
-      html += `<p><strong>Distancia total:</strong> ${distanciaKm.toFixed(1)} km</p>`;
-      html += `<p><strong>Tiempo conducción:</strong> ${tiempoConduccionMin.toFixed(0)} min</p>`;
+      html += `<p><strong>Distancia total:</strong> ${kilometros} km</p>`;
+      html += `<p><strong>Tiempo conducción:</strong> ${minutosConduccion} min</p>`;
     }
     if (resumen.trafficDelayInSeconds > 0) {
       html += `<p><strong>Retraso por tráfico:</strong> ${Math.round(resumen.trafficDelayInSeconds / 60)} min</p>`;
@@ -1374,10 +1375,7 @@ async function calcularRuta(opciones = {}) {
       html += `<span style="color:#FFD600">■</span> ${statsTrafico.lento} lentos `;
       html += `<span style="color:#FF1744">■</span> ${statsTrafico.congestion} congestionados</p>`;
     }
-    html += `<p><strong>Tiempo servicio:</strong> ${tiempoServicioTotal} min</p>`;
-    if (tiempoConduccionMin > 0) {
-      html += `<p><strong>Tiempo total estimado:</strong> ${tiempoTotal.toFixed(0)} min</p>`;
-    }
+    html += `<p><strong>Tiempo servicio en paradas:</strong> ${tiempoServicioTotal} min</p>`;
 
     html += "<h3>Orden de visita</h3>";
     html += "<ol>";
