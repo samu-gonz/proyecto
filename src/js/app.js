@@ -386,7 +386,17 @@ function recalcularRutaAutomatica() {
 }
 
 async function recalcularRutaAutomaticaAhora() {
-  await enrutarParadasDesdeUI();
+  if (
+    misParadasSeleccionadas.length === 0 &&
+    obtenerSeleccionados().length > 0
+  ) {
+    obtenerSeleccionados().forEach((m) => {
+      if (!misParadasSeleccionadas.some((p) => p.id === m.id)) {
+        misParadasSeleccionadas.push(paradaParaItinerario(m));
+      }
+    });
+  }
+  await invocarEnrutamientoTomTom();
 }
 
 function detenerSeguimientoGPS() {
@@ -1076,39 +1086,38 @@ function irAMaquinaEnMapa(maquina) {
   seleccionarMaquinaEnMapa(maquina);
 }
 
-/** Clic en mapa / popup: acumula en misParadasSeleccionadas igual que el menú. */
-async function onSeleccionMaquinaEnLista(maquina, checked) {
-  const nuevaMaquina =
-    typeof normalizarPuntoRuta === "function"
-      ? normalizarPuntoRuta(puntoDesdeMaquina(maquina))
-      : puntoDesdeMaquina(maquina);
+function paradaParaItinerario(maquina) {
+  const base = puntoDesdeMaquina(maquina);
+  return typeof normalizarPuntoRuta === "function"
+    ? normalizarPuntoRuta(base)
+    : base;
+}
 
+/** Mapa y menú: añade o quita paradas en el mismo array global. */
+function actualizarItinerarioParada(maquina, checked) {
   if (checked) {
     if (!misParadasSeleccionadas.some((p) => p.id === maquina.id)) {
-      misParadasSeleccionadas.push(nuevaMaquina);
+      misParadasSeleccionadas.push(paradaParaItinerario(maquina));
     }
-    seleccionarMaquinaEnMapa(maquina);
-    centrarMapaEn(maquina.lat, maquina.lng, 15);
   } else {
     misParadasSeleccionadas = misParadasSeleccionadas.filter(
       (p) => p.id !== maquina.id
     );
   }
-
   marcarMaquinaEnLista(maquina.id, checked);
+}
+
+/** Clic en mapa o popup: mismo itinerario que el menú lateral. */
+async function onSeleccionMaquinaEnLista(maquina, checked) {
+  actualizarItinerarioParada(maquina, checked);
+  if (checked) {
+    seleccionarMaquinaEnMapa(maquina);
+    centrarMapaEn(maquina.lat, maquina.lng, 15);
+  }
   programarGuardadoEstado();
   clearTimeout(recalcularRutaTimer);
   recalcularRutaTimer = null;
-
-  if (misParadasSeleccionadas.length === 0) {
-    limpiarRutaEnMapa();
-    limpiarContenedorResumen(
-      "<p>Selecciona al menos una máquina para ver la ruta en el mapa.</p>"
-    );
-    return;
-  }
-
-  await enrutarParadasDesdeUI([...misParadasSeleccionadas]);
+  await invocarEnrutamientoTomTom();
 }
 
 function seleccionarMaquinaEnMapa(maquina) {
@@ -1252,35 +1261,17 @@ function actualizarIndicadorFiltro(texto, cantidad) {
   el.textContent = `${cantidad} máquina(s) en "${texto.trim()}".`;
 }
 
-/**
- * Menú lateral: acumula paradas en misParadasSeleccionadas y enruta con todas.
- */
+/** Menú lateral: idéntico al mapa (array global + mismo enrutador). */
 async function onSeleccionParadaEnMenuLateral(maquina, checked) {
-  const nuevaMaquina =
-    typeof normalizarPuntoRuta === "function"
-      ? normalizarPuntoRuta(puntoDesdeMaquina(maquina))
-      : puntoDesdeMaquina(maquina);
-
-  if (checked) {
-    if (!misParadasSeleccionadas.some((p) => p.id === maquina.id)) {
-      misParadasSeleccionadas.push(nuevaMaquina);
-    }
-  } else {
-    misParadasSeleccionadas = misParadasSeleccionadas.filter(
-      (p) => p.id !== maquina.id
-    );
-  }
-
-  marcarMaquinaEnLista(maquina.id, checked);
+  actualizarItinerarioParada(maquina, checked);
   if (checked) {
     seleccionarMaquinaEnMapa(maquina);
     centrarMapaEn(maquina.lat, maquina.lng, 15);
   }
-
   programarGuardadoEstado();
   clearTimeout(recalcularRutaTimer);
   recalcularRutaTimer = null;
-  await enrutarParadasDesdeUI([...misParadasSeleccionadas]);
+  await invocarEnrutamientoTomTom();
 }
 
 function renderListaMaquinas(maquinas, idsSeleccionados) {
@@ -1417,24 +1408,14 @@ function dibujarNumeroEnMapa(num, lat, lng) {
 }
 
 /**
- * Mismo flujo TomTom para mapa y menú lateral: limpia capas, valida coords y pinta la ruta.
+ * Enrutamiento unificado: map + misParadasSeleccionadas + calcularRutaTomTom global.
  */
-async function enrutarParadasDesdeUI(paradasAcumuladas) {
+async function invocarEnrutamientoTomTom() {
   if (restaurandoSesion) return;
 
   const resumenDiv = document.getElementById("resumen");
-  const seleccionados =
-    paradasAcumuladas !== undefined
-      ? paradasAcumuladas
-      : misParadasSeleccionadas.length > 0
-        ? [...misParadasSeleccionadas]
-        : obtenerSeleccionados().map((m) =>
-            typeof normalizarPuntoRuta === "function"
-              ? normalizarPuntoRuta(puntoDesdeMaquina(m))
-              : puntoDesdeMaquina(m)
-          );
 
-  if (seleccionados.length === 0) {
+  if (misParadasSeleccionadas.length === 0) {
     limpiarRutaEnMapa();
     limpiarContenedorResumen(
       "<p>Selecciona al menos una máquina para ver la ruta en el mapa.</p>"
@@ -1464,42 +1445,32 @@ async function enrutarParadasDesdeUI(paradasAcumuladas) {
 
   const miSeq = ++calcularRutaSeq;
   window.__rutaSeqActiva = miSeq;
-  limpiarRutaAntesDeNuevoCalculo();
 
-  const mapa = map;
+  limpiarEstadoRutaInterno();
+  limpiarNumeroMarkers();
+  ocultarResumenRutaFlotante();
+  limpiarContenedorResumen("<p>Calculando ruta con tráfico TomTom...</p>");
+
   const origenActual =
     typeof normalizarPuntoRuta === "function"
       ? normalizarPuntoRuta(origenRaw)
       : origenRaw;
 
-  const paradasEntrada = seleccionados.map((m) => puntoDesdeMaquina(m));
-  const destinosUnicos = prepararParadasParaTomTom(origenActual, paradasEntrada);
-  const destinos = destinosUnicos
-    .map((m) =>
-      typeof normalizarPuntoRuta === "function"
-        ? normalizarPuntoRuta(m)
-        : m
-    )
-    .filter((m) =>
-      typeof coordenadasValidas === "function" ? coordenadasValidas(m) : true
-    );
+  const paradasFiltradas = prepararParadasParaTomTom(origenActual, [
+    ...misParadasSeleccionadas
+  ]).filter((p) =>
+    typeof coordenadasValidas === "function" ? coordenadasValidas(p) : true
+  );
 
-  if (destinos.length === 0) {
-    limpiarRutaEnMapa();
-    limpiarNumeroMarkers();
-    ocultarResumenRutaFlotante();
-    estadoRutaReponedor = null;
+  if (paradasFiltradas.length === 0) {
     limpiarContenedorResumen(
-      "<p>Selecciona al menos una máquina para visitar (distinta del origen si partes de una máquina).</p>"
+      "<p>Selecciona al menos una máquina distinta del origen.</p>"
     );
     programarGuardadoEstado();
     return;
   }
 
-  limpiarNumeroMarkers();
-  limpiarContenedorResumen("<p>Calculando ruta con tráfico TomTom...</p>");
-
-  const destinoSeleccionado = ordenarPorRutaOptima(origenActual, destinos);
+  const paradasParaTomTom = ordenarPorRutaOptima(origenActual, paradasFiltradas);
   const apiKey =
     typeof obtenerClaveTomTom === "function"
       ? obtenerClaveTomTom()
@@ -1515,15 +1486,15 @@ async function enrutarParadasDesdeUI(paradasAcumuladas) {
 
     estadoRutaReponedor = {
       origen: origenActual,
-      rutaOrdenada: destinoSeleccionado,
+      rutaOrdenada: paradasParaTomTom,
       claveTomTom: apiKey,
       areasEvitadas: []
     };
 
     const resultadoRuta = await calcularRutaTomTom(
-      mapa,
+      map,
       origenActual,
-      destinoSeleccionado,
+      paradasParaTomTom,
       apiKey,
       null,
       {},
@@ -1531,7 +1502,6 @@ async function enrutarParadasDesdeUI(paradasAcumuladas) {
     );
 
     if (miSeq !== calcularRutaSeq) {
-      limpiarLineasRutaDelMapa();
       return;
     }
 
@@ -1584,7 +1554,7 @@ async function enrutarParadasDesdeUI(paradasAcumuladas) {
 
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
-    const tiempoServicioTotal = destinoSeleccionado.reduce(
+    const tiempoServicioTotal = paradasParaTomTom.reduce(
       (acc, p) => acc + tiempoServicioMinutos(p),
       0
     );
@@ -1599,7 +1569,7 @@ async function enrutarParadasDesdeUI(paradasAcumuladas) {
     if (textoFiltroActual.trim()) {
       html += `<p><strong>Zona filtrada:</strong> ${textoFiltroActual.trim()}</p>`;
     }
-    html += `<p><strong>Paradas a visitar:</strong> ${destinoSeleccionado.length}</p>`;
+    html += `<p><strong>Paradas a visitar:</strong> ${paradasParaTomTom.length}</p>`;
     html += `<p><strong>Distancia total:</strong> ${kilometros} km</p>`;
     html += `<p><strong>Tiempo conducción:</strong> ${minutosConduccion} min</p>`;
     if (summary.trafficDelayInSeconds > 0) {
@@ -1616,7 +1586,7 @@ async function enrutarParadasDesdeUI(paradasAcumuladas) {
     html += "<h3>Orden de visita</h3>";
     html += "<ol>";
     html += `<li><strong>Salida:</strong> ${origenActual.nombre}</li>`;
-    destinoSeleccionado.forEach((p, idx) => {
+    paradasParaTomTom.forEach((p, idx) => {
       html += `<li>${p.nombre} (${tiempoServicioMinutos(p)} min)</li>`;
       dibujarNumeroEnMapa(idx + 1, p.lat, p.lng ?? p.lon);
     });
@@ -1635,21 +1605,34 @@ async function enrutarParadasDesdeUI(paradasAcumuladas) {
     }
 
     console.error("TomTom Routing:", e);
-    limpiarRutaAntesDeNuevoCalculo();
 
     let html = `<p><strong>No se pudo calcular la ruta por carretera.</strong></p>`;
     html += `<p>${e.message || "Error al conectar con TomTom Routing."}</p>`;
     html += `<p>Revisa la clave API y que la app se ejecute con <code>npm run dev</code>.</p>`;
     html += `<p><strong>Salida desde:</strong> ${origenActual.nombre}</p>`;
-    html += `<p><strong>Paradas planificadas:</strong> ${destinoSeleccionado.length}</p>`;
+    html += `<p><strong>Paradas planificadas:</strong> ${paradasParaTomTom.length}</p>`;
     html += "<h3>Orden de visita (sin línea en mapa)</h3><ol>";
     html += `<li><strong>Salida:</strong> ${origenActual.nombre}</li>`;
-    destinoSeleccionado.forEach((p) => {
+    paradasParaTomTom.forEach((p) => {
       html += `<li>${p.nombre} (${tiempoServicioMinutos(p)} min)</li>`;
     });
     html += `<li><strong>Regreso:</strong> ${origenActual.nombre}</li></ol>`;
     limpiarContenedorResumen(html);
   }
+}
+
+async function enrutarParadasDesdeUI() {
+  if (
+    misParadasSeleccionadas.length === 0 &&
+    obtenerSeleccionados().length > 0
+  ) {
+    obtenerSeleccionados().forEach((m) => {
+      if (!misParadasSeleccionadas.some((p) => p.id === m.id)) {
+        misParadasSeleccionadas.push(paradaParaItinerario(m));
+      }
+    });
+  }
+  await invocarEnrutamientoTomTom();
 }
 
 async function calcularRuta(opciones = {}) {
@@ -1673,7 +1656,7 @@ async function calcularRuta(opciones = {}) {
     }
   }
 
-  await enrutarParadasDesdeUI();
+  await invocarEnrutamientoTomTom();
 }
 
 window.addEventListener("DOMContentLoaded", async () => {

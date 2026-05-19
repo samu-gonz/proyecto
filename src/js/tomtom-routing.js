@@ -105,15 +105,14 @@ function segmentoLatLon(punto) {
 /**
  * Origen → paradas (sin vuelta al origen).
  * URL en texto plano (sin URLSearchParams).
- * Query: sectionType=traffic (minúscula; TomTom rechaza "Traffic" con 400).
- * La respuesta trae sectionType "TRAFFIC" en cada sección.
+ * sectionType=Traffic (T mayúscula) para secciones de tráfico en la respuesta.
  */
 function construirUrlRutaTomTom(origen, paradas, apiKey) {
   const tramos = [segmentoLatLon(origen)];
   paradas.forEach((p) => tramos.push(segmentoLatLon(p)));
   const ubicaciones = tramos.join(":");
 
-  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&departAt=now&routeRepresentation=polyline&sectionType=traffic`;
+  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&departAt=now&routeRepresentation=polyline&sectionType=Traffic`;
 }
 
 function polylineCarreteraDesdeRuta(data) {
@@ -384,14 +383,12 @@ async function calcularRutaTomTom(
     }
 
     if (pintadoObsoleto(seqToken)) {
-      limpiarLineasRuta(mapa);
       return null;
     }
 
     const capa = mapa ? pintarSeccionesEnMapa(mapa, data, opcionesPintado) : null;
 
     if (pintadoObsoleto(seqToken)) {
-      limpiarLineasRuta(mapa);
       return null;
     }
 
@@ -440,4 +437,6 @@ function resumenTraficoRuta(rutaTomTom) {
 
 if (typeof window !== "undefined") {
   window.calcularRutaTomTom = calcularRutaTomTom;
+  window.limpiarLineasRuta = limpiarLineasRuta;
+  window.limpiarRutaTomTom = limpiarRutaTomTom;
 }
