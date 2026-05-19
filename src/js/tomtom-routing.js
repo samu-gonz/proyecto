@@ -13,6 +13,9 @@ const COLOR_RUTA_ESQUIVADA_BORDE = "#ff00aa";
 /** Array global — app.js lo vacía con limpiarLineasRuta. */
 var lineasRutaActual = [];
 
+/** Marcadores Leaflet de incidencias (roadblocks) en la ruta actual. */
+var marcadoresIncidencias = [];
+
 function lonDePunto(p) {
   if (!p) return null;
   const lon = p.lon ?? p.lng;
@@ -180,9 +183,7 @@ function limpiarLineasRuta(mapa) {
   }
   lineasRutaActual = [];
 
-  if (typeof limpiarMarcadoresIncidencias === "function" && mapa) {
-    limpiarMarcadoresIncidencias(mapa);
-  }
+  limpiarMarcadoresIncidencias(mapa);
 }
 
 function limpiarRutaTomTom(mapa) {
@@ -401,7 +402,7 @@ async function calcularRutaTomTom(
       return null;
     }
 
-    if (mapa && typeof pintarIncidenciasDeRuta === "function") {
+    if (mapa) {
       pintarIncidenciasDeRuta(mapa, data, apiKey).catch((errInc) => {
         console.warn("Incidencias de ruta:", errInc);
       });
@@ -436,8 +437,237 @@ function resumenTraficoRuta(rutaTomTom) {
   return { congestion, lento, fluido, total: secciones.length };
 }
 
+const COLOR_INCIDENCIA_ROADBLOCK = "#FF1744";
+
+const ETIQUETAS_ICONO_INCIDENCIA = {
+  1: "Accidente",
+  6: "Tráfico denso",
+  7: "Carril cerrado",
+  8: "Carretera cortada",
+  9: "Obras"
+};
+
+/**
+ * Acuña el viaje: summary si trae esquinas; si no, geometría de la ruta (legs/points).
+ */
+function bboxDesdeDatosRuta(data, margenGrados = 0.03) {
+  const summary = data?.routes?.[0]?.summary;
+  const sw =
+    summary?.southWestCorner ||
+    summary?.boundingBox?.southWestCorner ||
+    summary?.bbox?.southWest;
+  const ne =
+    summary?.northEastCorner ||
+    summary?.boundingBox?.northEastCorner ||
+    summary?.bbox?.northEast;
+
+  if (sw && ne) {
+    const minLat = Number(sw.latitude ?? sw.lat);
+    const minLon = Number(sw.longitude ?? sw.lon ?? sw.lng);
+    const maxLat = Number(ne.latitude ?? ne.lat);
+    const maxLon = Number(ne.longitude ?? ne.lon ?? ne.lng);
+    if (
+      [minLat, minLon, maxLat, maxLon].every((n) => Number.isFinite(n))
+    ) {
+      return {
+        minLat: minLat - margenGrados,
+        minLon: minLon - margenGrados,
+        maxLat: maxLat + margenGrados,
+        maxLon: maxLon + margenGrados
+      };
+    }
+  }
+
+  const puntos = polylineCarreteraDesdeRuta(data);
+  if (puntos.length < 2) return null;
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLon = Infinity;
+  let maxLon = -Infinity;
+
+  puntos.forEach(([lat, lon]) => {
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+    minLon = Math.min(minLon, lon);
+    maxLon = Math.max(maxLon, lon);
+  });
+
+  return {
+    minLat: minLat - margenGrados,
+    minLon: minLon - margenGrados,
+    maxLat: maxLat + margenGrados,
+    maxLon: maxLon + margenGrados
+  };
+}
+
+function construirUrlIncidentesTomTom(bbox, apiKey) {
+  const { minLat, minLon, maxLat, maxLon } = bbox;
+  return `https://api.tomtom.com/traffic/services/4/incidentDetails/s3/${minLat},${minLon},${maxLat},${maxLon}/11/-1/json?key=${apiKey}&trafficModelId=-1&language=es-ES`;
+}
+
+function etiquetaIncidenciaPoi(poi) {
+  const ic = Number(poi?.ic);
+  if (ETIQUETAS_ICONO_INCIDENCIA[ic]) return ETIQUETAS_ICONO_INCIDENCIA[ic];
+
+  const texto =
+    poi?.d ||
+    poi?.description ||
+    poi?.desc ||
+    poi?.c ||
+    poi?.ty ||
+    poi?.type;
+  if (texto && String(texto).trim()) return String(texto).trim();
+
+  return "Incidencia de tráfico";
+}
+
+function esRoadblockPoi(poi) {
+  const ic = Number(poi?.ic);
+  if ([1, 6, 7, 8, 9].includes(ic)) return true;
+
+  const ty = String(poi?.ty || poi?.type || "").toUpperCase();
+  return /CLOSURE|WORK|ACCIDENT|JAM|BLOCK|OBST/.test(ty);
+}
+
+function latLonDesdePoi(poi) {
+  if (poi?.p) {
+    const lon = Number(poi.p.x ?? poi.p.lon ?? poi.p.longitude);
+    const lat = Number(poi.p.y ?? poi.p.lat ?? poi.p.latitude);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return { lat, lon };
+    }
+  }
+
+  if (poi?.location) {
+    const lat = Number(poi.location.latitude ?? poi.location.lat);
+    const lon = Number(poi.location.longitude ?? poi.location.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return { lat, lon };
+    }
+  }
+
+  const lat = Number(poi.lat ?? poi.latitude);
+  const lon = Number(poi.lon ?? poi.lng ?? poi.longitude);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    return { lat, lon };
+  }
+
+  return null;
+}
+
+function listaPoiDesdeRespuestaIncidencias(json) {
+  const raiz = json?.tm ?? json;
+  if (!raiz) return [];
+
+  if (Array.isArray(raiz.poi)) return raiz.poi;
+  if (Array.isArray(raiz.POI)) return raiz.POI;
+
+  return [];
+}
+
+function limpiarMarcadoresIncidencias(mapa) {
+  if (mapa) {
+    marcadoresIncidencias.forEach((marcador) => {
+      if (marcador && mapa.hasLayer(marcador)) {
+        mapa.removeLayer(marcador);
+      }
+    });
+  }
+  marcadoresIncidencias = [];
+}
+
+function crearMarcadorIncidencia(lat, lon, textoPopup) {
+  return L.circleMarker([lat, lon], {
+    radius: 10,
+    color: "#ffffff",
+    weight: 2,
+    fillColor: COLOR_INCIDENCIA_ROADBLOCK,
+    fillOpacity: 0.95
+  }).bindPopup(`<strong>${textoPopup}</strong>`);
+}
+
+/**
+ * Roadblocks TomTom: bbox del viaje → Incident Details v4 → marcadores rojos en Leaflet.
+ */
+async function pintarIncidenciasDeRuta(mapa, data, apiKey = "") {
+  if (!mapa || !data?.routes?.length) {
+    return { total: 0, marcadores: [] };
+  }
+
+  const chkIncidencias = document.getElementById("chk-trafico-incidencias");
+  if (chkIncidencias && !chkIncidencias.checked) {
+    limpiarMarcadoresIncidencias(mapa);
+    return { total: 0, marcadores: [], ocultas: true };
+  }
+
+  limpiarMarcadoresIncidencias(mapa);
+
+  const clave = apiKey?.trim() || "";
+  if (!clave) {
+    console.warn("Incidencias: falta clave API TomTom");
+    return { total: 0, marcadores: [] };
+  }
+
+  const bbox = bboxDesdeDatosRuta(data);
+  if (!bbox) {
+    console.warn("Incidencias: no se pudo calcular el bbox de la ruta");
+    return { total: 0, marcadores: [] };
+  }
+
+  const url = construirUrlIncidentesTomTom(bbox, clave);
+
+  try {
+    const response = await fetch(url);
+    const json = await response.json();
+
+    if (!response.ok) {
+      console.error("TomTom Incident Details:", response.status, json);
+      return { total: 0, marcadores: [] };
+    }
+
+    const pois = listaPoiDesdeRespuestaIncidencias(json);
+    const vistos = new Set();
+
+    pois.forEach((poi, indice) => {
+      if (!esRoadblockPoi(poi)) return;
+
+      const coords = latLonDesdePoi(poi);
+      if (!coords) return;
+
+      const claveMarcador = `${coords.lat.toFixed(5)},${coords.lon.toFixed(5)}`;
+      if (vistos.has(claveMarcador)) return;
+      vistos.add(claveMarcador);
+
+      const titulo = etiquetaIncidenciaPoi(poi);
+      const marcador = crearMarcadorIncidencia(
+        coords.lat,
+        coords.lon,
+        titulo
+      );
+      marcador.addTo(mapa);
+      marcador.incidenciaDatos = {
+        id: poi.id || `inc-${indice}`,
+        lat: coords.lat,
+        lon: coords.lon,
+        descripcion: titulo,
+        tipo: titulo,
+        poi
+      };
+      marcadoresIncidencias.push(marcador);
+    });
+
+    return { total: marcadoresIncidencias.length, marcadores: marcadoresIncidencias };
+  } catch (error) {
+    console.error("Error al obtener incidencias TomTom:", error);
+    return { total: 0, marcadores: [] };
+  }
+}
+
 if (typeof window !== "undefined") {
   window.calcularRutaTomTom = calcularRutaTomTom;
   window.limpiarLineasRuta = limpiarLineasRuta;
   window.limpiarRutaTomTom = limpiarRutaTomTom;
+  window.limpiarMarcadoresIncidencias = limpiarMarcadoresIncidencias;
+  window.pintarIncidenciasDeRuta = pintarIncidenciasDeRuta;
 }
