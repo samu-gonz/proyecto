@@ -1314,7 +1314,7 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
         centrarMapaEn(m.lat, m.lng, 15);
       }
       programarGuardadoEstado();
-      void calcularRuta();
+      void calcularRuta({ resolverOrigen: false });
     });
 
     const label = document.createElement("label");
@@ -1643,8 +1643,17 @@ async function enrutarParadasDesdeUI() {
 }
 
 async function calcularRuta(opciones = {}) {
-  const { resolverOrigen = true } = opciones;
+  let { resolverOrigen = true } = opciones;
   const resumenDiv = document.getElementById("resumen");
+
+  const origenYaConfirmado =
+    origenRuta &&
+    typeof coordenadasValidas === "function" &&
+    coordenadasValidas(origenRuta);
+
+  if (origenYaConfirmado) {
+    resolverOrigen = false;
+  }
 
   if (resolverOrigen) {
     try {

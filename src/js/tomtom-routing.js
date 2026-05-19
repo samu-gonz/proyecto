@@ -105,14 +105,15 @@ function segmentoLatLon(punto) {
 /**
  * Origen → paradas (sin vuelta al origen).
  * URL en texto plano (sin URLSearchParams).
- * sectionType=Traffic (T mayúscula) para secciones de tráfico en la respuesta.
+ * sectionType=traffic en la petición (Traffic con T mayúscula devuelve 400).
+ * La respuesta puede traer sectionType "TRAFFIC" en cada sección.
  */
 function construirUrlRutaTomTom(origen, paradas, apiKey) {
   const tramos = [segmentoLatLon(origen)];
   paradas.forEach((p) => tramos.push(segmentoLatLon(p)));
   const ubicaciones = tramos.join(":");
 
-  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&departAt=now&routeRepresentation=polyline&sectionType=Traffic`;
+  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&departAt=now&routeRepresentation=polyline&sectionType=traffic`;
 }
 
 function polylineCarreteraDesdeRuta(data) {
