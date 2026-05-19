@@ -876,6 +876,24 @@ async function aplicarOrigenGPS() {
   }
 }
 
+function origenListoParaSelector() {
+  const valor = document.getElementById("select-origen")?.value ?? "gps";
+  if (
+    !origenRuta ||
+    typeof coordenadasValidas !== "function" ||
+    !coordenadasValidas(origenRuta)
+  ) {
+    return false;
+  }
+  if (valor === "gps") {
+    return origenRuta.esGPS === true;
+  }
+  const idMaquina = Number(valor);
+  return (
+    origenRuta.esMaquina === true && origenRuta.maquinaId === idMaquina
+  );
+}
+
 async function resolverOrigenDesdeSelector() {
   const valor = document.getElementById("select-origen").value;
 
@@ -1319,7 +1337,7 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
 
     const label = document.createElement("label");
     label.htmlFor = input.id;
-    label.textContent = `${m.nombre} (${tiempoServicioMinutos(m)} min)`;
+    label.textContent = `${m.nombre} · ${m.zona}`;
 
     div.appendChild(input);
     div.appendChild(label);
@@ -1444,8 +1462,15 @@ async function invocarEnrutamientoTomTom() {
     !coordenadasValidas(origenRaw)
   ) {
     if (resumenDiv) {
-      resumenDiv.innerHTML =
-        "<p>Confirma tu ubicación GPS o elige un origen de partida para calcular la ruta.</p>";
+      const valorOrigen =
+        document.getElementById("select-origen")?.value ?? "gps";
+      if (valorOrigen === "gps") {
+        resumenDiv.innerHTML =
+          "<p>Pulsa «Confirmar mi ubicación actual» para usar el GPS como inicio de la ruta.</p>";
+      } else {
+        resumenDiv.innerHTML =
+          "<p>Confirma tu ubicación GPS o elige un origen de partida para calcular la ruta.</p>";
+      }
     }
     return;
   }
@@ -1643,15 +1668,11 @@ async function enrutarParadasDesdeUI() {
 }
 
 async function calcularRuta(opciones = {}) {
-  let { resolverOrigen = true } = opciones;
   const resumenDiv = document.getElementById("resumen");
+  const saltarResolverExplicito = opciones.resolverOrigen === false;
+  let resolverOrigen = !saltarResolverExplicito;
 
-  const origenYaConfirmado =
-    origenRuta &&
-    typeof coordenadasValidas === "function" &&
-    coordenadasValidas(origenRuta);
-
-  if (origenYaConfirmado) {
+  if (!saltarResolverExplicito && origenListoParaSelector()) {
     resolverOrigen = false;
   }
 
@@ -1696,6 +1717,17 @@ window.addEventListener("DOMContentLoaded", async () => {
       const valor = document.getElementById("select-origen").value;
 
       if (valor === "gps") {
+        const geo = document.getElementById("geo-estado");
+        if (
+          geo &&
+          (!origenRuta?.esGPS ||
+            typeof coordenadasValidas !== "function" ||
+            !coordenadasValidas(origenRuta))
+        ) {
+          geo.className = "small geo-estado";
+          geo.textContent =
+            "Pulsa «Confirmar mi ubicación actual» para fijar tu ubicación GPS.";
+        }
         return;
       }
 
