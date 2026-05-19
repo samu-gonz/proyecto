@@ -528,7 +528,7 @@ function mostrarResumenRutaFlotante(datosTomTom) {
     return;
   }
 
-  panel.textContent = `Distancia: ${stats.distanciaKm.toFixed(1)} km | Tiempo: ${stats.minutosConduccion} min`;
+  panel.textContent = `Distancia: ${stats.kilometros} km | Tiempo: ${stats.minutosConduccion} min`;
   panel.hidden = false;
 }
 
@@ -538,9 +538,7 @@ function ocultarResumenRutaFlotante() {
 }
 
 function pintarRutaTomTomEnMapa(datosTomTom, opciones = {}) {
-  if (!opciones.rutaEsquivada) {
-    limpiarCapasRuta();
-  } else if (typeof limpiarRutaTomTom === "function") {
+  if (!opciones.rutaEsquivada && typeof limpiarRutaTomTom === "function") {
     limpiarRutaTomTom(map);
   }
 
@@ -1340,10 +1338,12 @@ async function calcularRuta(opciones = {}) {
 
     mostrarResumenRutaFlotante(datosTomTom);
 
+    const resumenViajeDatos =
+      resultadoRuta.resumenViaje || extraerResumenRutaTomTom(datosTomTom);
     const resumen = rutaTomTom.summary || {};
-    const kilometros = ((resumen.lengthInMeters || 0) / 1000).toFixed(1);
-    minutosConduccion = Math.round((resumen.travelTimeInSeconds || 0) / 60);
-    distanciaKm = parseFloat(kilometros);
+    const kilometros = resumenViajeDatos?.kilometros ?? "0.0";
+    minutosConduccion = resumenViajeDatos?.minutosConduccion ?? 0;
+    distanciaKm = resumenViajeDatos?.distanciaKm ?? 0;
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
     const tiempoServicioTotal = rutaOrdenada.reduce(
