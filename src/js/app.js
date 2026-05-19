@@ -894,6 +894,25 @@ function origenListoParaSelector() {
   );
 }
 
+/** Alinea misParadasSeleccionadas con los checkboxes marcados en la lista. */
+function sincronizarParadasDesdeCheckboxes() {
+  const ids = obtenerSeleccionadosIds();
+  misParadasSeleccionadas = misParadasSeleccionadas.filter((p) =>
+    ids.includes(p.id)
+  );
+  obtenerSeleccionados().forEach((m) => {
+    if (misParadasSeleccionadas.some((p) => p.id === m.id)) return;
+    misParadasSeleccionadas.push(paradaParaItinerario(m));
+  });
+}
+
+function programarEnrutamientoDesdeLista() {
+  clearTimeout(recalcularRutaTimer);
+  recalcularRutaTimer = setTimeout(() => {
+    void invocarEnrutamientoTomTom();
+  }, 280);
+}
+
 async function resolverOrigenDesdeSelector() {
   const valor = document.getElementById("select-origen").value;
 
@@ -1133,9 +1152,7 @@ async function onSeleccionMaquinaEnLista(maquina, checked) {
     centrarMapaEn(maquina.lat, maquina.lng, 15);
   }
   programarGuardadoEstado();
-  clearTimeout(recalcularRutaTimer);
-  recalcularRutaTimer = null;
-  await invocarEnrutamientoTomTom();
+  programarEnrutamientoDesdeLista();
 }
 
 function seleccionarMaquinaEnMapa(maquina) {
@@ -1332,7 +1349,7 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
         centrarMapaEn(m.lat, m.lng, 15);
       }
       programarGuardadoEstado();
-      void calcularRuta({ resolverOrigen: false });
+      programarEnrutamientoDesdeLista();
     });
 
     const label = document.createElement("label");
@@ -1439,6 +1456,7 @@ async function invocarEnrutamientoTomTom() {
   if (restaurandoSesion) return;
 
   const resumenDiv = document.getElementById("resumen");
+  sincronizarParadasDesdeCheckboxes();
 
   if (misParadasSeleccionadas.length === 0) {
     limpiarRutaEnMapa();
@@ -1670,9 +1688,19 @@ async function enrutarParadasDesdeUI() {
 async function calcularRuta(opciones = {}) {
   const resumenDiv = document.getElementById("resumen");
   const saltarResolverExplicito = opciones.resolverOrigen === false;
+  const valorOrigen = document.getElementById("select-origen")?.value ?? "gps";
   let resolverOrigen = !saltarResolverExplicito;
 
-  if (!saltarResolverExplicito && origenListoParaSelector()) {
+  if (saltarResolverExplicito || origenListoParaSelector()) {
+    resolverOrigen = false;
+  } else if (
+    origenRuta &&
+    typeof coordenadasValidas === "function" &&
+    coordenadasValidas(origenRuta) &&
+    origenRuta.esMaquina &&
+    valorOrigen === "gps"
+  ) {
+    // INICIO en mapa con desplegable en GPS: rutear igual (no exigir confirmar GPS otra vez)
     resolverOrigen = false;
   }
 
