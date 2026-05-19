@@ -85,18 +85,8 @@ function construirUrlRutaTomTom(origen, paradas, apiKey) {
     segmentoLatLon(origen)
   ].join(":");
 
-  const params = new URLSearchParams({
-    key: apiKey,
-    routeType: "fastest",
-    travelMode: "car",
-    traffic: "true",
-    trafficModel: "best",
-    departAt: "now",
-    routeRepresentation: "polyline",
-    sectionType: "traffic"
-  });
-
-  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?${params.toString()}`;
+  // URL corregida a mano: evita que URLSearchParams rompa los dos puntos (:)
+  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&trafficModel=best&departAt=now&routeRepresentation=polyline&sectionType=traffic`;
 }
 
 function polylineCarreteraDesdeRuta(data) {
