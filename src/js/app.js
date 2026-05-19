@@ -1307,7 +1307,14 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
     input.value = m.id;
     input.checked = idsSeleccionados.includes(m.id);
     input.addEventListener("change", () => {
-      void onSeleccionParadaEnMenuLateral(m, input.checked);
+      const checked = input.checked;
+      actualizarItinerarioParada(m, checked);
+      if (checked) {
+        seleccionarMaquinaEnMapa(m);
+        centrarMapaEn(m.lat, m.lng, 15);
+      }
+      programarGuardadoEstado();
+      void calcularRuta();
     });
 
     const label = document.createElement("label");
