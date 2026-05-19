@@ -545,10 +545,16 @@ function aplicarPosicionGPS(position, { esPrimeraLectura = false } = {}) {
   };
 
   if (esPrimeraLectura) {
-    limpiarRutaEnMapa();
+    const hayParadas =
+      misParadasSeleccionadas.length > 0 || obtenerSeleccionados().length > 0;
+    if (!hayParadas) {
+      limpiarRutaEnMapa();
+    }
     colocarMarcadorGpsUsuario(lat, lon, accuracy);
     actualizarInfoOrigen();
-    centrarMapaEn(lat, lon, 15);
+    if (!hayParadas) {
+      centrarMapaEn(lat, lon, 15);
+    }
   } else {
     colocarMarcadorGpsUsuario(lat, lon, accuracy);
     actualizarInfoOrigen();
@@ -607,6 +613,29 @@ function limpiarRutaEnMapa() {
 function encuadrarRutaEnMapa(bounds) {
   if (bounds && bounds.isValid()) {
     map.fitBounds(bounds, { padding: [30, 30] });
+  }
+}
+
+/** Origen GPS + paradas + geometría: evita zoom solo a un tramo de tráfico mal indexado. */
+function encuadrarVistaRutaCompleta(origen, paradas, boundsCapa) {
+  const puntos = [];
+  const latO = Number(origen?.lat);
+  const lonO = Number(origen?.lon ?? origen?.lng);
+  if (Number.isFinite(latO) && Number.isFinite(lonO)) {
+    puntos.push(L.latLng(latO, lonO));
+  }
+  (paradas || []).forEach((p) => {
+    const lat = Number(p.lat);
+    const lon = Number(p.lon ?? p.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      puntos.push(L.latLng(lat, lon));
+    }
+  });
+  if (boundsCapa?.isValid?.()) {
+    puntos.push(boundsCapa.getSouthWest(), boundsCapa.getNorthEast());
+  }
+  if (puntos.length > 0) {
+    map.fitBounds(L.latLngBounds(puntos), { padding: [50, 50] });
   }
 }
 
@@ -844,7 +873,12 @@ async function confirmarUbicacionGPS() {
       "¡Ubicación confirmada! Seguimiento activo: el marcador se mueve contigo.";
 
     programarGuardadoEstado();
-    await recalcularRutaAutomaticaAhora();
+    if (
+      misParadasSeleccionadas.length > 0 ||
+      obtenerSeleccionados().length > 0
+    ) {
+      programarEnrutamientoDesdeLista();
+    }
     return true;
   } catch (err) {
     detenerSeguimientoGPS();
@@ -1149,7 +1183,9 @@ async function onSeleccionMaquinaEnLista(maquina, checked) {
   actualizarItinerarioParada(maquina, checked);
   if (checked) {
     seleccionarMaquinaEnMapa(maquina);
-    centrarMapaEn(maquina.lat, maquina.lng, 15);
+    if (!origenRuta?.esGPS) {
+      centrarMapaEn(maquina.lat, maquina.lng, 15);
+    }
   }
   programarGuardadoEstado();
   programarEnrutamientoDesdeLista();
@@ -1301,7 +1337,9 @@ async function onSeleccionParadaEnMenuLateral(maquina, checked) {
   actualizarItinerarioParada(maquina, checked);
   if (checked) {
     seleccionarMaquinaEnMapa(maquina);
-    centrarMapaEn(maquina.lat, maquina.lng, 15);
+    if (!origenRuta?.esGPS) {
+      centrarMapaEn(maquina.lat, maquina.lng, 15);
+    }
   }
   programarGuardadoEstado();
   clearTimeout(recalcularRutaTimer);
@@ -1576,7 +1614,13 @@ async function invocarEnrutamientoTomTom() {
       return;
     }
 
-    if (capaRuta?.getBounds) {
+    if (origenActual.esGPS) {
+      encuadrarVistaRutaCompleta(
+        origenActual,
+        paradasParaTomTom,
+        capaRuta?.getBounds?.()
+      );
+    } else if (capaRuta?.getBounds) {
       encuadrarRutaEnMapa(capaRuta.getBounds());
     }
 
@@ -1692,15 +1736,6 @@ async function calcularRuta(opciones = {}) {
   let resolverOrigen = !saltarResolverExplicito;
 
   if (saltarResolverExplicito || origenListoParaSelector()) {
-    resolverOrigen = false;
-  } else if (
-    origenRuta &&
-    typeof coordenadasValidas === "function" &&
-    coordenadasValidas(origenRuta) &&
-    origenRuta.esMaquina &&
-    valorOrigen === "gps"
-  ) {
-    // INICIO en mapa con desplegable en GPS: rutear igual (no exigir confirmar GPS otra vez)
     resolverOrigen = false;
   }
 

@@ -247,6 +247,24 @@ function capaAgrupadaParaBounds() {
   return L.featureGroup(lineasRutaActual);
 }
 
+/** Si el bounds pintado cubre muy poco de la polilínea, los índices de sección fallaron. */
+function geometriaPintadaCubreRuta(polyline, capas) {
+  if (!polyline?.length || polyline.length < 2 || !capas?.length) return false;
+
+  const bRuta = L.latLngBounds(polyline);
+  const bPint = L.featureGroup(capas).getBounds();
+  if (!bRuta.isValid() || !bPint.isValid()) return false;
+
+  const spanRutaLat = bRuta.getNorth() - bRuta.getSouth();
+  const spanRutaLng = bRuta.getEast() - bRuta.getWest();
+  const spanPintLat = bPint.getNorth() - bPint.getSouth();
+  const spanPintLng = bPint.getEast() - bPint.getWest();
+
+  const ratioLat = spanRutaLat > 1e-6 ? spanPintLat / spanRutaLat : 1;
+  const ratioLng = spanRutaLng > 1e-6 ? spanPintLng / spanRutaLng : 1;
+  return Math.min(ratioLat, ratioLng) >= 0.2;
+}
+
 function pintarPolylineEnMapa(mapa, puntos, color, opciones = {}) {
   const linea = L.polyline(puntos, {
     color,
@@ -297,6 +315,7 @@ function pintarSeccionesEnMapa(mapa, data, opciones = {}) {
     }
   }
 
+  const indiceInicioCapas = lineasRutaActual.length;
   let dibujadas = 0;
 
   secciones.forEach((seccion) => {
@@ -308,7 +327,16 @@ function pintarSeccionesEnMapa(mapa, data, opciones = {}) {
     dibujadas += 1;
   });
 
-  if (dibujadas === 0) {
+  const capasNuevas = lineasRutaActual.slice(indiceInicioCapas);
+
+  if (
+    dibujadas === 0 ||
+    !geometriaPintadaCubreRuta(polyline, capasNuevas)
+  ) {
+    capasNuevas.forEach((linea) => {
+      if (mapa.hasLayer(linea)) mapa.removeLayer(linea);
+    });
+    lineasRutaActual = lineasRutaActual.slice(0, indiceInicioCapas);
     pintarPolylineEnMapa(mapa, polyline, COLORES_TRAFICO.fluido, opciones);
     dibujadas = 1;
   }
@@ -391,6 +419,7 @@ async function calcularRutaTomTom(
     const capa = mapa ? pintarSeccionesEnMapa(mapa, data, opcionesPintado) : null;
 
     if (pintadoObsoleto(seqToken)) {
+      limpiarLineasRuta(mapa);
       return null;
     }
 
