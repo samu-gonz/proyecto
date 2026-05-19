@@ -96,6 +96,18 @@ let calcularRutaSeq = 0;
 /** Paradas elegidas desde el menú lateral (orden de clic). */
 let misParadasSeleccionadas = [];
 
+/** Grupo Leaflet con todas las líneas de tráfico (app.js). */
+let grupoLineasRutaApp = null;
+
+/** Conteo de tramos para el panel del menú lateral. */
+let conteoTraficoRutaApp = { verde: 0, amarillo: 0, rojo: 0 };
+
+const COLORES_TRAMO_TRAFICO_APP = {
+  verde: "#00E676",
+  amarillo: "#FFD600",
+  rojo: "#FF1744"
+};
+
 const STORAGE_KEY = "planificador-ruta-tenerife-v1";
 
 const iconoRepositor = L.divIcon({
@@ -591,16 +603,308 @@ function limpiarLineasRutaDelMapa() {
   }
 }
 
+function limpiarGrupoLineasRutaApp(mapa) {
+  if (mapa && grupoLineasRutaApp && mapa.hasLayer(grupoLineasRutaApp)) {
+    mapa.removeLayer(grupoLineasRutaApp);
+  }
+  grupoLineasRutaApp = null;
+}
+
 function limpiarCapasRuta() {
   limpiarLineasRutaDelMapa();
+  limpiarGrupoLineasRutaApp(map);
+  limpiarPanelTraficoMenuLateral();
   if (capasTraficoTomTom) {
     capasTraficoTomTom.ocultarDeRuta();
   }
 }
 
+function esSeccionPintableEnMapaApp(seccion) {
+  const tipo = (seccion?.sectionType || "").toUpperCase();
+  return tipo === "TRAFFIC" || tipo === "MOTORWAY";
+}
+
+function ordenarSeccionesParaPintadoApp(a, b) {
+  const diff = (a.startPointIndex ?? 0) - (b.startPointIndex ?? 0);
+  if (diff !== 0) return diff;
+  const ta = (a.sectionType || "").toUpperCase();
+  const tb = (b.sectionType || "").toUpperCase();
+  if (ta === "MOTORWAY" && tb === "TRAFFIC") return -1;
+  if (ta === "TRAFFIC" && tb === "MOTORWAY") return 1;
+  return 0;
+}
+
+function polylineCarreteraDesdeDatosApp(data) {
+  const ruta = data?.routes?.[0];
+  if (!ruta) return [];
+
+  const legs = ruta.legs;
+  if (legs?.length) {
+    const puntos = [];
+    legs.forEach((leg) => {
+      (leg.points || []).forEach((p) => {
+        const lat = Number(p.latitude);
+        const lon = Number(p.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        const pt = [lat, lon];
+        const ultimo = puntos[puntos.length - 1];
+        if (ultimo && ultimo[0] === pt[0] && ultimo[1] === pt[1]) return;
+        puntos.push(pt);
+      });
+    });
+    if (puntos.length >= 2) return puntos;
+  }
+
+  if (ruta.points?.length) {
+    return ruta.points.map((p) => [p.latitude, p.longitude]);
+  }
+
+  return [];
+}
+
+function puntosCarreteraDeSeccionApp(seccion, polylineCarretera) {
+  if (!polylineCarretera?.length) return [];
+
+  const inicio = Math.max(0, seccion.startPointIndex ?? 0);
+  const fin = Math.min(
+    polylineCarretera.length - 1,
+    seccion.endPointIndex ?? inicio
+  );
+  if (fin < inicio) return [];
+
+  const puntosTramo = polylineCarretera.slice(inicio, fin + 1);
+  return puntosTramo.length >= 2 ? puntosTramo : [];
+}
+
+/** Misma regla para pintar el mapa y para el contador del menú. */
+function clasificarTramoTraficoApp(seccion) {
+  const retraso = Number(seccion.delayInSeconds) || 0;
+  const magnitude = Number(seccion.magnitudeOfDelay) || 0;
+
+  if (magnitude >= 3 || retraso > 60) return "rojo";
+  if (
+    (magnitude >= 1 && magnitude <= 2) ||
+    (retraso > 0 && retraso <= 60)
+  ) {
+    return "amarillo";
+  }
+  return "verde";
+}
+
+function colorTramoTraficoApp(seccion) {
+  return COLORES_TRAMO_TRAFICO_APP[clasificarTramoTraficoApp(seccion)];
+}
+
+function indicesCubiertosPorSeccionesApp(secciones, longitudPolyline) {
+  const cubierto = new Set();
+  secciones.forEach((seccion) => {
+    const inicio = Math.max(0, seccion.startPointIndex ?? 0);
+    const fin = Math.min(
+      longitudPolyline - 1,
+      seccion.endPointIndex ?? inicio
+    );
+    for (let i = inicio; i <= fin; i++) {
+      cubierto.add(i);
+    }
+  });
+  return cubierto;
+}
+
+function agregarPolylineAlGrupoRuta(grupo, puntos, color, opciones) {
+  if (puntos.length < 2) return;
+  grupo.addLayer(
+    L.polyline(puntos, {
+      color,
+      weight: opciones.rutaEsquivada ? 8 : 6,
+      opacity: 0.9,
+      lineJoin: "round",
+      lineCap: "round",
+      dashArray: opciones.rutaEsquivada ? "14 8" : undefined
+    })
+  );
+}
+
+/** Tramos de la polyline global no cubiertos por ninguna section (calles a máquinas). */
+function pintarHuecosPolylineEnGrupo(grupo, polyline, indicesCubiertos, color, opciones) {
+  let i = 0;
+  while (i < polyline.length) {
+    while (i < polyline.length && indicesCubiertos.has(i)) i++;
+    const inicio = i;
+    while (i < polyline.length && !indicesCubiertos.has(i)) i++;
+    if (i <= inicio) continue;
+
+    let desde = inicio;
+    let hasta = i;
+    if (hasta - desde < 2) {
+      if (desde > 0) desde -= 1;
+      if (hasta < polyline.length) hasta += 1;
+    }
+    agregarPolylineAlGrupoRuta(
+      grupo,
+      polyline.slice(desde, hasta),
+      color,
+      opciones
+    );
+  }
+}
+
+/**
+ * Pinta trozo a trozo por sections (slice sobre legs[].points); sin línea verde global.
+ */
+function pintarRutaTraficoFragmentadaEnMapa(mapa, data, opciones = {}) {
+  limpiarGrupoLineasRutaApp(mapa);
+  if (typeof limpiarLineasRuta === "function") {
+    limpiarLineasRuta(mapa);
+  }
+
+  const polyline = polylineCarreteraDesdeDatosApp(data);
+  if (polyline.length < 2) {
+    return null;
+  }
+
+  const secciones = [...(data?.routes?.[0]?.sections || [])]
+    .filter((s) => esSeccionPintableEnMapaApp(s))
+    .sort(ordenarSeccionesParaPintadoApp);
+
+  const grupoLineasRuta = L.featureGroup().addTo(mapa);
+  grupoLineasRutaApp = grupoLineasRuta;
+
+  if (opciones.rutaEsquivada) {
+    grupoLineasRuta.addLayer(
+      L.polyline(polyline, {
+        color: "#ff00aa",
+        weight: 10,
+        opacity: 0.35,
+        lineJoin: "round",
+        lineCap: "round"
+      })
+    );
+  }
+
+  const indicesCubiertos = indicesCubiertosPorSeccionesApp(
+    secciones,
+    polyline.length
+  );
+
+  // Calles locales / tramos sin section: verde por trozos (no una sola polyline global).
+  pintarHuecosPolylineEnGrupo(
+    grupoLineasRuta,
+    polyline,
+    indicesCubiertos,
+    COLORES_TRAMO_TRAFICO_APP.verde,
+    opciones
+  );
+
+  // Cada section: slice(startPointIndex, endPointIndex + 1) sobre la polyline de legs.
+  secciones.forEach((seccion) => {
+    const puntosTramo = puntosCarreteraDeSeccionApp(seccion, polyline);
+    if (puntosTramo.length < 2) return;
+
+    agregarPolylineAlGrupoRuta(
+      grupoLineasRuta,
+      puntosTramo,
+      colorTramoTraficoApp(seccion),
+      opciones
+    );
+  });
+
+  if (grupoLineasRuta.getBounds().isValid()) {
+    mapa.fitBounds(grupoLineasRuta.getBounds(), { padding: [50, 50] });
+  }
+
+  return grupoLineasRuta.getLayers().length > 0 ? grupoLineasRuta : null;
+}
+
+function contarTramosTraficoDesdeDatos(data) {
+  let rojos = 0;
+  let amarillos = 0;
+  let verdes = 0;
+
+  const polyline = polylineCarreteraDesdeDatosApp(data);
+  const secciones = [...(data?.routes?.[0]?.sections || [])].filter((s) =>
+    esSeccionPintableEnMapaApp(s)
+  );
+  if (!secciones.length) {
+    return { rojo: 0, amarillo: 0, verde: 0 };
+  }
+
+  secciones.forEach((seccion) => {
+    if (puntosCarreteraDeSeccionApp(seccion, polyline).length < 2) return;
+
+    const nivel = clasificarTramoTraficoApp(seccion);
+    if (nivel === "rojo") rojos++;
+    else if (nivel === "amarillo") amarillos++;
+    else verdes++;
+  });
+
+  return { rojo: rojos, amarillo: amarillos, verde: verdes };
+}
+
+function actualizarTraficoMenuDesdeDatos(data) {
+  actualizarPanelTraficoMenuLateral(contarTramosTraficoDesdeDatos(data));
+}
+
+function ensurePanelTraficoMenuLateral() {
+  if (document.getElementById("panel-trafico-ruta")) return;
+
+  const resumenDiv = document.getElementById("resumen");
+  if (!resumenDiv?.parentNode) return;
+
+  const panel = document.createElement("div");
+  panel.id = "panel-trafico-ruta";
+  panel.className = "panel-trafico-ruta";
+  panel.innerHTML =
+    '<p id="contador-trafico-personalizado" class="small">Tráfico: sin ruta calculada</p>';
+  resumenDiv.parentNode.insertBefore(panel, resumenDiv);
+}
+
+function limpiarPanelTraficoMenuLateral() {
+  conteoTraficoRutaApp = { verde: 0, amarillo: 0, rojo: 0 };
+  const el =
+    document.getElementById("contador-trafico-personalizado") ||
+    document.getElementById("trafico-ruta-texto");
+  if (!el) return;
+
+  el.innerHTML =
+    "<strong>Tráfico:</strong> " +
+    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.rojo}">0 tramos rojos</span>, ` +
+    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.amarillo}">0 amarillos</span>, ` +
+    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.verde}">0 verdes</span>`;
+}
+
+function actualizarPanelTraficoMenuLateral(conteo) {
+  ensurePanelTraficoMenuLateral();
+  const rojos = conteo.rojo ?? 0;
+  const amarillos = conteo.amarillo ?? 0;
+  const verdes = conteo.verde ?? 0;
+
+  conteoTraficoRutaApp = { verde: verdes, amarillo: amarillos, rojo: rojos };
+
+  const el =
+    document.getElementById("contador-trafico-personalizado") ||
+    document.getElementById("trafico-ruta-texto");
+  if (!el) return;
+
+  el.innerHTML =
+    "<strong>Tráfico:</strong> " +
+    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.rojo}">${rojos} tramos rojos</span>, ` +
+    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.amarillo}">${amarillos} amarillos</span>, ` +
+    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.verde}">${verdes} verdes</span>`;
+}
+
+function statsTraficoDesdeConteoApp(conteo) {
+  return {
+    fluido: conteo.verde,
+    lento: conteo.amarillo,
+    congestion: conteo.rojo,
+    total: conteo.verde + conteo.amarillo + conteo.rojo
+  };
+}
+
 /** Limpieza física + amnesia de estado antes de cada cálculo nuevo. */
 function limpiarRutaAntesDeNuevoCalculo() {
   limpiarLineasRutaDelMapa();
+  limpiarGrupoLineasRutaApp(map);
   limpiarEstadoRutaInterno();
   ocultarResumenRutaFlotante();
 }
@@ -707,8 +1011,13 @@ async function esquivarIncidenciaTomTom(incidencia) {
     }
 
     const datosTomTom = resultado.data;
-    if (resultado.capa?.getBounds) {
-      encuadrarRutaEnMapa(resultado.capa.getBounds());
+
+    const capaEsquivada = pintarRutaTraficoFragmentadaEnMapa(map, datosTomTom, {
+      rutaEsquivada: true
+    });
+    actualizarTraficoMenuDesdeDatos(datosTomTom);
+    if (!capaEsquivada) {
+      return;
     }
 
     const summary = datosTomTom.routes[0]?.summary;
@@ -969,7 +1278,7 @@ function sincronizarParadasDesdeCheckboxes() {
 function programarEnrutamientoDesdeLista() {
   clearTimeout(recalcularRutaTimer);
   recalcularRutaTimer = setTimeout(() => {
-    void invocarEnrutamientoTomTom();
+    void calcularRuta({ resolverOrigen: false });
   }, 280);
 }
 
@@ -1116,6 +1425,8 @@ function limpiarTodoElMapa() {
   window.__rutaSeqActiva = calcularRutaSeq;
 
   limpiarLineasRutaDelMapa();
+  limpiarGrupoLineasRutaApp(map);
+  limpiarPanelTraficoMenuLateral();
   limpiarNumeroMarkers();
   limpiarMarcadoresOrigen();
 
@@ -1136,10 +1447,14 @@ function limpiarTodoElMapa() {
   maquinasVisibles.forEach((m) => marcarMaquinaEnLista(m.id, false));
   misParadasSeleccionadas = [];
 
-  const elKm = document.getElementById("distancia-total");
-  const elMin = document.getElementById("tiempo-conduccion");
-  if (elKm) elKm.textContent = "0.0 km";
-  if (elMin) elMin.textContent = "0 min";
+  if (typeof resetearEtiquetasResumen === "function") {
+    resetearEtiquetasResumen();
+  } else {
+    const elKm = document.getElementById("distancia-total");
+    const elMin = document.getElementById("tiempo-conduccion");
+    if (elKm) elKm.textContent = "0.0 km";
+    if (elMin) elMin.textContent = "0 min";
+  }
 
   ocultarResumenRutaFlotante();
 
@@ -1371,6 +1686,11 @@ async function onSeleccionParadaEnMenuLateral(maquina, checked) {
   clearTimeout(recalcularRutaTimer);
   recalcularRutaTimer = null;
   await invocarEnrutamientoTomTom();
+}
+
+/** Lista lateral: checkboxes → misParadasSeleccionadas → calcularRuta automático. */
+function initListaMaquinas(maquinas, idsSeleccionados) {
+  renderListaMaquinas(maquinas, idsSeleccionados);
 }
 
 function renderListaMaquinas(maquinas, idsSeleccionados) {
@@ -1632,8 +1952,13 @@ async function invocarEnrutamientoTomTom() {
     }
 
     const datosTomTom = resultadoRuta.data;
-    const capaRuta = resultadoRuta.capa;
     const rutaTomTom = datosTomTom.routes[0];
+
+    const capaRuta = pintarRutaTraficoFragmentadaEnMapa(map, datosTomTom, {
+      rutaEsquivada: Boolean(resultadoRuta?.rutaEsquivada)
+    });
+    actualizarTraficoMenuDesdeDatos(datosTomTom);
+    statsTrafico = statsTraficoDesdeConteoApp(conteoTraficoRutaApp);
 
     if (!capaRuta) {
       limpiarEstadoRutaInterno();
@@ -1650,8 +1975,6 @@ async function invocarEnrutamientoTomTom() {
         paradasParaTomTom,
         capaRuta?.getBounds?.()
       );
-    } else if (capaRuta?.getBounds) {
-      encuadrarRutaEnMapa(capaRuta.getBounds());
     }
 
     if (capasTraficoTomTom?.mostrarEnRuta && capaRuta?.getBounds) {
@@ -1678,8 +2001,6 @@ async function invocarEnrutamientoTomTom() {
     const minutosConduccion =
       resumenViajeDatos?.minutosConduccion ??
       Math.round(Number(summary.travelTimeInSeconds) / 60);
-
-    statsTrafico = resumenTraficoRuta(rutaTomTom);
 
     const tiempoServicioTotal = paradasParaTomTom.reduce(
       (acc, p) => acc + tiempoServicioMinutos(p),
@@ -1825,7 +2146,9 @@ async function calcularRuta(opciones = {}) {
 window.addEventListener("DOMContentLoaded", async () => {
   initSelectOrigen();
   initMap();
-  renderListaMaquinas(maquinasVisibles, []);
+  ensurePanelTraficoMenuLateral();
+  limpiarPanelTraficoMenuLateral();
+  initListaMaquinas(maquinasVisibles, []);
   actualizarIndicadorFiltro("", maquinasVisibles.length);
 
   await restaurarEstadoDesdeLocalStorage();
