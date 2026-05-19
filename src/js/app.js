@@ -91,6 +91,8 @@ let restaurandoSesion = false;
 let recalcularRutaTimer = null;
 /** Evita aplicar respuestas TomTom obsoletas si el usuario cambió paradas rápido. */
 let calcularRutaSeq = 0;
+/** Paradas elegidas desde el menú lateral (orden de clic). */
+let misParadasSeleccionadas = [];
 
 const STORAGE_KEY = "planificador-ruta-tenerife-v1";
 
@@ -1025,6 +1027,7 @@ function limpiarTodoElMapa() {
   }
 
   maquinasVisibles.forEach((m) => marcarMaquinaEnLista(m.id, false));
+  misParadasSeleccionadas = [];
 
   const elKm = document.getElementById("distancia-total");
   const elMin = document.getElementById("tiempo-conduccion");
@@ -1073,16 +1076,39 @@ function irAMaquinaEnMapa(maquina) {
   seleccionarMaquinaEnMapa(maquina);
 }
 
-/** Misma acción al elegir parada en el mapa o en la lista lateral. */
+/** Clic en mapa / popup: acumula en misParadasSeleccionadas igual que el menú. */
 async function onSeleccionMaquinaEnLista(maquina, checked) {
+  const nuevaMaquina =
+    typeof normalizarPuntoRuta === "function"
+      ? normalizarPuntoRuta(puntoDesdeMaquina(maquina))
+      : puntoDesdeMaquina(maquina);
+
   if (checked) {
+    if (!misParadasSeleccionadas.some((p) => p.id === maquina.id)) {
+      misParadasSeleccionadas.push(nuevaMaquina);
+    }
     seleccionarMaquinaEnMapa(maquina);
     centrarMapaEn(maquina.lat, maquina.lng, 15);
+  } else {
+    misParadasSeleccionadas = misParadasSeleccionadas.filter(
+      (p) => p.id !== maquina.id
+    );
   }
+
+  marcarMaquinaEnLista(maquina.id, checked);
   programarGuardadoEstado();
   clearTimeout(recalcularRutaTimer);
   recalcularRutaTimer = null;
-  await enrutarParadasDesdeUI();
+
+  if (misParadasSeleccionadas.length === 0) {
+    limpiarRutaEnMapa();
+    limpiarContenedorResumen(
+      "<p>Selecciona al menos una máquina para ver la ruta en el mapa.</p>"
+    );
+    return;
+  }
+
+  await enrutarParadasDesdeUI([...misParadasSeleccionadas]);
 }
 
 function seleccionarMaquinaEnMapa(maquina) {
@@ -1226,6 +1252,37 @@ function actualizarIndicadorFiltro(texto, cantidad) {
   el.textContent = `${cantidad} máquina(s) en "${texto.trim()}".`;
 }
 
+/**
+ * Menú lateral: acumula paradas en misParadasSeleccionadas y enruta con todas.
+ */
+async function onSeleccionParadaEnMenuLateral(maquina, checked) {
+  const nuevaMaquina =
+    typeof normalizarPuntoRuta === "function"
+      ? normalizarPuntoRuta(puntoDesdeMaquina(maquina))
+      : puntoDesdeMaquina(maquina);
+
+  if (checked) {
+    if (!misParadasSeleccionadas.some((p) => p.id === maquina.id)) {
+      misParadasSeleccionadas.push(nuevaMaquina);
+    }
+  } else {
+    misParadasSeleccionadas = misParadasSeleccionadas.filter(
+      (p) => p.id !== maquina.id
+    );
+  }
+
+  marcarMaquinaEnLista(maquina.id, checked);
+  if (checked) {
+    seleccionarMaquinaEnMapa(maquina);
+    centrarMapaEn(maquina.lat, maquina.lng, 15);
+  }
+
+  programarGuardadoEstado();
+  clearTimeout(recalcularRutaTimer);
+  recalcularRutaTimer = null;
+  await enrutarParadasDesdeUI([...misParadasSeleccionadas]);
+}
+
 function renderListaMaquinas(maquinas, idsSeleccionados) {
   const cont = document.getElementById("lista-maquinas");
   cont.innerHTML = "";
@@ -1234,6 +1291,20 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
     cont.innerHTML = '<p class="small">No hay máquinas en esta zona.</p>';
     return;
   }
+
+  misParadasSeleccionadas = misParadasSeleccionadas.filter((p) =>
+    idsSeleccionados.includes(p.id)
+  );
+  idsSeleccionados.forEach((id) => {
+    if (misParadasSeleccionadas.some((p) => p.id === id)) return;
+    const maquina = maquinas.find((m) => m.id === id) || obtenerMaquinaPorId(id);
+    if (!maquina) return;
+    const punto =
+      typeof normalizarPuntoRuta === "function"
+        ? normalizarPuntoRuta(puntoDesdeMaquina(maquina))
+        : puntoDesdeMaquina(maquina);
+    misParadasSeleccionadas.push(punto);
+  });
 
   maquinas.forEach((m) => {
     const div = document.createElement("div");
@@ -1245,7 +1316,7 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
     input.value = m.id;
     input.checked = idsSeleccionados.includes(m.id);
     input.addEventListener("change", () => {
-      void onSeleccionMaquinaEnLista(m, input.checked);
+      void onSeleccionParadaEnMenuLateral(m, input.checked);
     });
 
     const label = document.createElement("label");
@@ -1348,11 +1419,20 @@ function dibujarNumeroEnMapa(num, lat, lng) {
 /**
  * Mismo flujo TomTom para mapa y menú lateral: limpia capas, valida coords y pinta la ruta.
  */
-async function enrutarParadasDesdeUI() {
+async function enrutarParadasDesdeUI(paradasAcumuladas) {
   if (restaurandoSesion) return;
 
   const resumenDiv = document.getElementById("resumen");
-  const seleccionados = obtenerSeleccionados();
+  const seleccionados =
+    paradasAcumuladas !== undefined
+      ? paradasAcumuladas
+      : misParadasSeleccionadas.length > 0
+        ? [...misParadasSeleccionadas]
+        : obtenerSeleccionados().map((m) =>
+            typeof normalizarPuntoRuta === "function"
+              ? normalizarPuntoRuta(puntoDesdeMaquina(m))
+              : puntoDesdeMaquina(m)
+          );
 
   if (seleccionados.length === 0) {
     limpiarRutaEnMapa();
@@ -1392,15 +1472,13 @@ async function enrutarParadasDesdeUI() {
       ? normalizarPuntoRuta(origenRaw)
       : origenRaw;
 
-  const destinosUnicos = prepararParadasParaTomTom(
-    origenActual,
-    seleccionados.map(puntoDesdeMaquina)
-  );
+  const paradasEntrada = seleccionados.map((m) => puntoDesdeMaquina(m));
+  const destinosUnicos = prepararParadasParaTomTom(origenActual, paradasEntrada);
   const destinos = destinosUnicos
     .map((m) =>
       typeof normalizarPuntoRuta === "function"
-        ? normalizarPuntoRuta(puntoDesdeMaquina(m))
-        : puntoDesdeMaquina(m)
+        ? normalizarPuntoRuta(m)
+        : m
     )
     .filter((m) =>
       typeof coordenadasValidas === "function" ? coordenadasValidas(m) : true
