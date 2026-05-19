@@ -116,6 +116,18 @@ function obtenerMaquinaPorId(id) {
   return MAQUINAS.find((m) => m.id === Number(id));
 }
 
+/** lat/lon numéricos desde una máquina o parada de la lista. */
+function puntoDesdeMaquina(maquina) {
+  const lat = Number(maquina?.lat);
+  const lon = Number(maquina?.lon ?? maquina?.lng);
+  return {
+    ...maquina,
+    lat,
+    lon,
+    lng: lon
+  };
+}
+
 function tiempoServicioMinutos(parada) {
   const minutos = Number(parada?.tiempoServicioMin);
   return Number.isFinite(minutos) ? minutos : 10;
@@ -372,31 +384,7 @@ function recalcularRutaAutomatica() {
 }
 
 async function recalcularRutaAutomaticaAhora() {
-  const resumenDiv = document.getElementById("resumen");
-  const seleccionados = obtenerSeleccionados();
-
-  if (seleccionados.length === 0) {
-    limpiarRutaEnMapa();
-    limpiarContenedorResumen(
-      "<p>Selecciona al menos una máquina para ver la ruta en el mapa.</p>"
-    );
-    programarGuardadoEstado();
-    return;
-  }
-
-  const origenRaw = obtenerOrigenRuta();
-  if (
-    !origenRaw ||
-    (typeof coordenadasValidas === "function" && !coordenadasValidas(origenRaw))
-  ) {
-    if (resumenDiv) {
-      resumenDiv.innerHTML =
-        "<p>Confirma tu ubicación GPS o elige un origen de partida para calcular la ruta.</p>";
-    }
-    return;
-  }
-
-  await calcularRuta({ resolverOrigen: false });
+  await enrutarParadasDesdeUI();
 }
 
 function detenerSeguimientoGPS() {
@@ -1085,6 +1073,18 @@ function irAMaquinaEnMapa(maquina) {
   seleccionarMaquinaEnMapa(maquina);
 }
 
+/** Misma acción al elegir parada en el mapa o en la lista lateral. */
+async function onSeleccionMaquinaEnLista(maquina, checked) {
+  if (checked) {
+    seleccionarMaquinaEnMapa(maquina);
+    centrarMapaEn(maquina.lat, maquina.lng, 15);
+  }
+  programarGuardadoEstado();
+  clearTimeout(recalcularRutaTimer);
+  recalcularRutaTimer = null;
+  await enrutarParadasDesdeUI();
+}
+
 function seleccionarMaquinaEnMapa(maquina) {
   maquinaSeleccionadaId = maquina.id;
 
@@ -1143,9 +1143,8 @@ function crearPopupMaquina(maquina) {
   btnIncluir.textContent = "Incluir en ruta";
   btnIncluir.addEventListener("click", async () => {
     marcarMaquinaEnLista(maquina.id, true);
-    irAMaquinaEnMapa(maquina);
     map.closePopup();
-    await recalcularRutaAutomaticaAhora();
+    await onSeleccionMaquinaEnLista(maquina, true);
   });
 
   acciones.appendChild(btnCentrar);
@@ -1177,8 +1176,11 @@ function actualizarMarcadoresMaquinas(maquinas) {
     mk.bindPopup(crearPopupMaquina(m));
 
     mk.on("click", () => {
-      seleccionarMaquinaEnMapa(m);
+      if (!obtenerSeleccionadosIds().includes(m.id)) {
+        marcarMaquinaEnLista(m.id, true);
+      }
       mk.openPopup();
+      void onSeleccionMaquinaEnLista(m, true);
     });
 
     maquinaMarkers.push(mk);
@@ -1243,8 +1245,7 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
     input.value = m.id;
     input.checked = idsSeleccionados.includes(m.id);
     input.addEventListener("change", () => {
-      programarGuardadoEstado();
-      recalcularRutaAutomatica();
+      void onSeleccionMaquinaEnLista(m, input.checked);
     });
 
     const label = document.createElement("label");
@@ -1344,34 +1345,29 @@ function dibujarNumeroEnMapa(num, lat, lng) {
   numeroMarkers.push(mk);
 }
 
-async function calcularRuta(opciones = {}) {
-  const { resolverOrigen = true } = opciones;
+/**
+ * Mismo flujo TomTom para mapa y menú lateral: limpia capas, valida coords y pinta la ruta.
+ */
+async function enrutarParadasDesdeUI() {
+  if (restaurandoSesion) return;
+
   const resumenDiv = document.getElementById("resumen");
-  const miSeq = ++calcularRutaSeq;
-  window.__rutaSeqActiva = miSeq;
+  const seleccionados = obtenerSeleccionados();
 
-  limpiarRutaAntesDeNuevoCalculo();
-
-  if (resolverOrigen) {
-    try {
-      await resolverOrigenDesdeSelector();
-    } catch (err) {
-      const mensaje =
-        err?.message ||
-        "No se pudo determinar el punto de partida. Confirma el GPS o elige una máquina.";
-      const geo = document.getElementById("geo-estado");
-      if (geo) {
-        geo.className = "small geo-estado error";
-        geo.textContent = mensaje;
-      }
-      resumenDiv.innerHTML = `<p>${mensaje}</p>`;
-      return;
-    }
+  if (seleccionados.length === 0) {
+    limpiarRutaEnMapa();
+    limpiarContenedorResumen(
+      "<p>Selecciona al menos una máquina para ver la ruta en el mapa.</p>"
+    );
+    programarGuardadoEstado();
+    return;
   }
 
   const origenRaw = obtenerOrigenRuta();
   if (!origenRaw) {
-    resumenDiv.innerHTML = "<p>Selecciona un punto de partida.</p>";
+    if (resumenDiv) {
+      resumenDiv.innerHTML = "<p>Selecciona un punto de partida.</p>";
+    }
     return;
   }
 
@@ -1379,22 +1375,32 @@ async function calcularRuta(opciones = {}) {
     typeof coordenadasValidas !== "function" ||
     !coordenadasValidas(origenRaw)
   ) {
-    console.error("Origen con coordenadas inválidas:", origenRaw);
-    resumenDiv.innerHTML =
-      "<p>El origen no tiene coordenadas válidas. Si usas GPS, pulsa «Confirmar mi ubicación actual».</p>";
+    if (resumenDiv) {
+      resumenDiv.innerHTML =
+        "<p>Confirma tu ubicación GPS o elige un origen de partida para calcular la ruta.</p>";
+    }
     return;
   }
 
-  const origen =
+  const miSeq = ++calcularRutaSeq;
+  window.__rutaSeqActiva = miSeq;
+  limpiarRutaAntesDeNuevoCalculo();
+
+  const mapa = map;
+  const origenActual =
     typeof normalizarPuntoRuta === "function"
       ? normalizarPuntoRuta(origenRaw)
       : origenRaw;
 
-  const seleccionados = obtenerSeleccionados();
-  const destinosUnicos = prepararParadasParaTomTom(origen, seleccionados);
+  const destinosUnicos = prepararParadasParaTomTom(
+    origenActual,
+    seleccionados.map(puntoDesdeMaquina)
+  );
   const destinos = destinosUnicos
     .map((m) =>
-      typeof normalizarPuntoRuta === "function" ? normalizarPuntoRuta(m) : m
+      typeof normalizarPuntoRuta === "function"
+        ? normalizarPuntoRuta(puntoDesdeMaquina(m))
+        : puntoDesdeMaquina(m)
     )
     .filter((m) =>
       typeof coordenadasValidas === "function" ? coordenadasValidas(m) : true
@@ -1415,9 +1421,8 @@ async function calcularRuta(opciones = {}) {
   limpiarNumeroMarkers();
   limpiarContenedorResumen("<p>Calculando ruta con tráfico TomTom...</p>");
 
-  const rutaOrdenada = ordenarPorRutaOptima(origen, destinos);
-
-  const claveTomTom =
+  const destinoSeleccionado = ordenarPorRutaOptima(origenActual, destinos);
+  const apiKey =
     typeof obtenerClaveTomTom === "function"
       ? obtenerClaveTomTom()
       : window.TOMTOM_API_KEY || "";
@@ -1426,22 +1431,22 @@ async function calcularRuta(opciones = {}) {
     let avisoRuta = "";
     let statsTrafico = null;
 
-    if (!claveTomTom) {
+    if (!apiKey) {
       throw new Error("Sin clave TomTom");
     }
 
     estadoRutaReponedor = {
-      origen,
-      rutaOrdenada,
-      claveTomTom,
+      origen: origenActual,
+      rutaOrdenada: destinoSeleccionado,
+      claveTomTom: apiKey,
       areasEvitadas: []
     };
 
     const resultadoRuta = await calcularRutaTomTom(
-      map,
-      origen,
-      rutaOrdenada,
-      claveTomTom,
+      mapa,
+      origenActual,
+      destinoSeleccionado,
+      apiKey,
       null,
       {},
       miSeq
@@ -1501,22 +1506,22 @@ async function calcularRuta(opciones = {}) {
 
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
-    const tiempoServicioTotal = rutaOrdenada.reduce(
+    const tiempoServicioTotal = destinoSeleccionado.reduce(
       (acc, p) => acc + tiempoServicioMinutos(p),
       0
     );
 
     let html = "";
     if (avisoRuta) html += `<p>${avisoRuta}</p>`;
-    html += `<p><strong>Salida desde:</strong> ${origen.nombre}`;
-    if (origen.esGPS && origen.precision) {
-      html += ` (±${Math.round(origen.precision)} m)`;
+    html += `<p><strong>Salida desde:</strong> ${origenActual.nombre}`;
+    if (origenActual.esGPS && origenActual.precision) {
+      html += ` (±${Math.round(origenActual.precision)} m)`;
     }
     html += "</p>";
     if (textoFiltroActual.trim()) {
       html += `<p><strong>Zona filtrada:</strong> ${textoFiltroActual.trim()}</p>`;
     }
-    html += `<p><strong>Paradas a visitar:</strong> ${rutaOrdenada.length}</p>`;
+    html += `<p><strong>Paradas a visitar:</strong> ${destinoSeleccionado.length}</p>`;
     html += `<p><strong>Distancia total:</strong> ${kilometros} km</p>`;
     html += `<p><strong>Tiempo conducción:</strong> ${minutosConduccion} min</p>`;
     if (summary.trafficDelayInSeconds > 0) {
@@ -1532,12 +1537,12 @@ async function calcularRuta(opciones = {}) {
 
     html += "<h3>Orden de visita</h3>";
     html += "<ol>";
-    html += `<li><strong>Salida:</strong> ${origen.nombre}</li>`;
-    rutaOrdenada.forEach((p, idx) => {
+    html += `<li><strong>Salida:</strong> ${origenActual.nombre}</li>`;
+    destinoSeleccionado.forEach((p, idx) => {
       html += `<li>${p.nombre} (${tiempoServicioMinutos(p)} min)</li>`;
       dibujarNumeroEnMapa(idx + 1, p.lat, p.lng ?? p.lon);
     });
-    html += `<li><strong>Regreso:</strong> ${origen.nombre}</li>`;
+    html += `<li><strong>Regreso:</strong> ${origenActual.nombre}</li>`;
     html += "</ol>";
 
     if (miSeq !== calcularRutaSeq) {
@@ -1557,16 +1562,40 @@ async function calcularRuta(opciones = {}) {
     let html = `<p><strong>No se pudo calcular la ruta por carretera.</strong></p>`;
     html += `<p>${e.message || "Error al conectar con TomTom Routing."}</p>`;
     html += `<p>Revisa la clave API y que la app se ejecute con <code>npm run dev</code>.</p>`;
-    html += `<p><strong>Salida desde:</strong> ${origen.nombre}</p>`;
-    html += `<p><strong>Paradas planificadas:</strong> ${rutaOrdenada.length}</p>`;
+    html += `<p><strong>Salida desde:</strong> ${origenActual.nombre}</p>`;
+    html += `<p><strong>Paradas planificadas:</strong> ${destinoSeleccionado.length}</p>`;
     html += "<h3>Orden de visita (sin línea en mapa)</h3><ol>";
-    html += `<li><strong>Salida:</strong> ${origen.nombre}</li>`;
-    rutaOrdenada.forEach((p) => {
+    html += `<li><strong>Salida:</strong> ${origenActual.nombre}</li>`;
+    destinoSeleccionado.forEach((p) => {
       html += `<li>${p.nombre} (${tiempoServicioMinutos(p)} min)</li>`;
     });
-    html += `<li><strong>Regreso:</strong> ${origen.nombre}</li></ol>`;
+    html += `<li><strong>Regreso:</strong> ${origenActual.nombre}</li></ol>`;
     limpiarContenedorResumen(html);
   }
+}
+
+async function calcularRuta(opciones = {}) {
+  const { resolverOrigen = true } = opciones;
+  const resumenDiv = document.getElementById("resumen");
+
+  if (resolverOrigen) {
+    try {
+      await resolverOrigenDesdeSelector();
+    } catch (err) {
+      const mensaje =
+        err?.message ||
+        "No se pudo determinar el punto de partida. Confirma el GPS o elige una máquina.";
+      const geo = document.getElementById("geo-estado");
+      if (geo) {
+        geo.className = "small geo-estado error";
+        geo.textContent = mensaje;
+      }
+      resumenDiv.innerHTML = `<p>${mensaje}</p>`;
+      return;
+    }
+  }
+
+  await enrutarParadasDesdeUI();
 }
 
 window.addEventListener("DOMContentLoaded", async () => {

@@ -437,3 +437,7 @@ function resumenTraficoRuta(rutaTomTom) {
 
   return { congestion, lento, fluido, total: secciones.length };
 }
+
+if (typeof window !== "undefined") {
+  window.calcularRutaTomTom = calcularRutaTomTom;
+}
