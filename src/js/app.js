@@ -692,9 +692,13 @@ async function esquivarIncidenciaTomTom(incidencia) {
       paradasOk,
       claveTomTom,
       areasEvitadas,
-      { rutaEsquivada: true },
+      { rutaEsquivada: true, autoEvitarRoadblocks: false },
       seqEsquivar
     );
+
+    if (resultado?.areasEvitadas?.length) {
+      estadoRutaReponedor.areasEvitadas = resultado.areasEvitadas;
+    }
 
     if (!resultado?.data) {
       return;
@@ -1585,9 +1589,13 @@ async function invocarEnrutamientoTomTom() {
       paradasParaTomTom,
       apiKey,
       null,
-      {},
+      { autoEvitarRoadblocks: true },
       miSeq
     );
+
+    if (resultadoRuta?.areasEvitadas?.length) {
+      estadoRutaReponedor.areasEvitadas = resultadoRuta.areasEvitadas;
+    }
 
     if (miSeq !== calcularRutaSeq) {
       return;
@@ -1655,6 +1663,10 @@ async function invocarEnrutamientoTomTom() {
 
     let html = "";
     if (avisoRuta) html += `<p>${avisoRuta}</p>`;
+    if (resultadoRuta?.rutaEsquivada) {
+      const nBloqueos = resultadoRuta.roadblocks?.length || 1;
+      html += `<p><strong>Ruta alternativa:</strong> se esquivó ${nBloqueos} bloqueo(s) en carretera (línea fucsia).</p>`;
+    }
     html += `<p><strong>Salida desde:</strong> ${origenActual.nombre}`;
     if (origenActual.esGPS && origenActual.precision) {
       html += ` (±${Math.round(origenActual.precision)} m)`;

@@ -16,6 +16,17 @@ var lineasRutaActual = [];
 /** Marcadores Leaflet de incidencias (roadblocks) en la ruta actual. */
 var marcadoresIncidencias = [];
 
+/** Bloqueos activos detectados en el último cálculo (se vacía al limpiar el mapa). */
+var roadblocksActivos = [];
+
+const UMBRAL_INTERCEPCION_RUTA_METROS = 150;
+const RETRASO_CRITICO_SEGUNDOS = 300;
+const RADIO_EVITAR_METROS = 280;
+const MAX_AREAS_EVITAR = 10;
+
+/** Iconos TomTom: 8=corte, 9=obras, 7=carril, 1=accidente. */
+const ICONOS_BLOQUEO_GRAVE = new Set([1, 7, 8, 9]);
+
 function lonDePunto(p) {
   if (!p) return null;
   const lon = p.lon ?? p.lng;
@@ -184,6 +195,11 @@ function limpiarLineasRuta(mapa) {
   lineasRutaActual = [];
 
   limpiarMarcadoresIncidencias(mapa);
+  limpiarRoadblocksActivos();
+}
+
+function limpiarRoadblocksActivos() {
+  roadblocksActivos = [];
 }
 
 function limpiarRutaTomTom(mapa) {
@@ -353,6 +369,316 @@ function pintadoObsoleto(seqToken) {
   );
 }
 
+function distanciaMetros(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function distanciaPuntoASegmentoMetros(pLat, pLon, aLat, aLon, bLat, bLon) {
+  const abLat = bLat - aLat;
+  const abLon = bLon - aLon;
+  if (Math.abs(abLat) < 1e-9 && Math.abs(abLon) < 1e-9) {
+    return distanciaMetros(pLat, pLon, aLat, aLon);
+  }
+  const t = Math.max(
+    0,
+    Math.min(
+      1,
+      ((pLat - aLat) * abLat + (pLon - aLon) * abLon) /
+        (abLat * abLat + abLon * abLon)
+    )
+  );
+  return distanciaMetros(pLat, pLon, aLat + t * abLat, aLon + t * abLon);
+}
+
+function distanciaPuntoAPolylineMetros(lat, lon, polyline) {
+  if (!polyline || polyline.length < 2) return Infinity;
+  let min = Infinity;
+  for (let i = 0; i < polyline.length - 1; i++) {
+    const [aLat, aLon] = polyline[i];
+    const [bLat, bLon] = polyline[i + 1];
+    min = Math.min(
+      min,
+      distanciaPuntoASegmentoMetros(lat, lon, aLat, aLon, bLat, bLon)
+    );
+  }
+  return min;
+}
+
+function incidenciaInterceptaRuta(lat, lon, polyline) {
+  return (
+    distanciaPuntoAPolylineMetros(lat, lon, polyline) <=
+    UMBRAL_INTERCEPCION_RUTA_METROS
+  );
+}
+
+function retrasoSegundosDesdePoi(poi) {
+  const delay = Number(
+    poi?.dl ?? poi?.delay ?? poi?.jd ?? poi?.magnitudeOfDelay ?? 0
+  );
+  return Number.isFinite(delay) ? delay : 0;
+}
+
+function esIncidenciaGrave(poi) {
+  const ic = Number(poi?.ic);
+  if (ICONOS_BLOQUEO_GRAVE.has(ic)) return true;
+
+  const delay = retrasoSegundosDesdePoi(poi);
+  if (delay >= RETRASO_CRITICO_SEGUNDOS) return true;
+
+  const ty = String(poi?.ty || poi?.type || "").toUpperCase();
+  if (/CLOSURE|ROAD.CLOSED|BLOCK/.test(ty)) return true;
+
+  return ic === 6 && delay >= 180;
+}
+
+function rectanguloEvitarDesdeRadioMetros(lat, lon, radioMetros = RADIO_EVITAR_METROS) {
+  const margenGrados = radioMetros / 111320;
+  return {
+    southWestCorner: {
+      latitude: lat - margenGrados,
+      longitude: lon - margenGrados
+    },
+    northEastCorner: {
+      latitude: lat + margenGrados,
+      longitude: lon + margenGrados
+    }
+  };
+}
+
+function areaEvitarYaRegistrada(areas, rect) {
+  if (!rect?.southWestCorner || !rect?.northEastCorner) return false;
+  return areas.some(
+    (r) =>
+      r.southWestCorner.latitude === rect.southWestCorner.latitude &&
+      r.southWestCorner.longitude === rect.southWestCorner.longitude &&
+      r.northEastCorner.latitude === rect.northEastCorner.latitude &&
+      r.northEastCorner.longitude === rect.northEastCorner.longitude
+  );
+}
+
+function combinarAreasEvitar(areasBase, bloqueos) {
+  const areas = [...(areasBase || [])];
+  (bloqueos || []).forEach((rb) => {
+    if (!rb.avoidRectangle) return;
+    if (areaEvitarYaRegistrada(areas, rb.avoidRectangle)) return;
+    areas.push(rb.avoidRectangle);
+  });
+  return areas.slice(0, MAX_AREAS_EVITAR);
+}
+
+async function peticionRutaTomTom(origenOk, paradasOk, apiKey, areasEvitar = []) {
+  const url = construirUrlRutaTomTom(origenOk, paradasOk, apiKey);
+  const fetchOpciones = { method: "GET" };
+  const areas = Array.isArray(areasEvitar) ? areasEvitar : [];
+
+  if (areas.length > 0) {
+    fetchOpciones.method = "POST";
+    fetchOpciones.headers = { "Content-Type": "application/json" };
+    fetchOpciones.body = JSON.stringify({
+      avoidAreas: { rectangles: areas.slice(0, MAX_AREAS_EVITAR) }
+    });
+  }
+
+  const response = await fetch(url, fetchOpciones);
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error("TomTom Routing error:", response.status, data);
+    throw new Error(
+      data?.detailedError?.message || `TomTom respondió ${response.status}`
+    );
+  }
+
+  if (!data.routes?.length) {
+    throw new Error("TomTom no encontró ninguna carretera válida entre esos puntos.");
+  }
+
+  return data;
+}
+
+function pintarRutaDesdeDatos(mapa, data, opcionesPintado, seqToken) {
+  if (pintadoObsoleto(seqToken)) return null;
+
+  const resumenViaje = aplicarSummaryAlPanel(data);
+  if (!resumenViaje) return null;
+
+  if (pintadoObsoleto(seqToken)) return null;
+
+  const capa = mapa ? pintarSeccionesEnMapa(mapa, data, opcionesPintado) : null;
+
+  if (pintadoObsoleto(seqToken)) {
+    if (mapa) limpiarLineasRuta(mapa);
+    return null;
+  }
+
+  if (!capa) return null;
+
+  return { capa, resumenViaje };
+}
+
+function incidenciasHabilitadasEnUi() {
+  const chk = document.getElementById("chk-trafico-incidencias");
+  return !chk || chk.checked;
+}
+
+async function obtenerIncidentesJson(bbox, apiKey) {
+  const clave = apiKey?.trim();
+  if (!clave || !bbox) return null;
+
+  const url = construirUrlIncidentesTomTom(bbox, clave);
+  const response = await fetch(url);
+  const json = await response.json();
+
+  if (!response.ok) {
+    console.error("TomTom Incident Details:", response.status, json);
+    return null;
+  }
+
+  return json;
+}
+
+function detectarRoadblocksSobreRuta(data, jsonIncidencias) {
+  const polyline = polylineCarreteraDesdeRuta(data);
+  if (polyline.length < 2) return [];
+
+  const pois = listaPoiDesdeRespuestaIncidencias(jsonIncidencias);
+  const vistos = new Set();
+  const bloqueos = [];
+
+  pois.forEach((poi, indice) => {
+    if (!esIncidenciaGrave(poi)) return;
+
+    const coords = latLonDesdePoi(poi);
+    if (!coords) return;
+    if (!incidenciaInterceptaRuta(coords.lat, coords.lon, polyline)) return;
+
+    const clave = `${coords.lat.toFixed(5)},${coords.lon.toFixed(5)}`;
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+
+    bloqueos.push({
+      id: poi.id || `rb-${indice}`,
+      lat: coords.lat,
+      lon: coords.lon,
+      descripcion: etiquetaIncidenciaPoi(poi),
+      avoidRectangle: rectanguloEvitarDesdeRadioMetros(coords.lat, coords.lon),
+      poi
+    });
+  });
+
+  return bloqueos;
+}
+
+function pintarMarcadoresRoadblocks(mapa, bloqueos) {
+  if (!mapa) return;
+
+  limpiarMarcadoresIncidencias(mapa);
+
+  if (!incidenciasHabilitadasEnUi()) {
+    limpiarRoadblocksActivos();
+    return;
+  }
+
+  roadblocksActivos = (bloqueos || []).map((rb) => ({ ...rb }));
+
+  bloqueos.forEach((rb) => {
+    const marcador = crearMarcadorIncidencia(rb.lat, rb.lon, rb.descripcion, {
+      enRuta: true
+    });
+    marcador.addTo(mapa);
+    marcador.incidenciaDatos = {
+      id: rb.id,
+      lat: rb.lat,
+      lon: rb.lon,
+      lng: rb.lon,
+      descripcion: rb.descripcion,
+      tipo: rb.descripcion,
+      avoidRectangle: rb.avoidRectangle,
+      poi: rb.poi
+    };
+    marcadoresIncidencias.push(marcador);
+  });
+}
+
+/**
+ * Tras la ruta inicial: Incident Details → bloqueos en la polilínea → marcadores → recálculo POST avoidAreas.
+ */
+async function procesarRoadblocksTrasRuta(
+  mapa,
+  data,
+  apiKey,
+  areasBase,
+  evitarAutomatico,
+  seqToken
+) {
+  if (!mapa || !data?.routes?.length || !incidenciasHabilitadasEnUi()) {
+    return {
+      bloqueos: [],
+      areasEvitadas: areasBase,
+      rutaEsquivada: false,
+      data
+    };
+  }
+
+  const bbox = bboxDesdeDatosRuta(data);
+  if (!bbox) {
+    return {
+      bloqueos: [],
+      areasEvitadas: areasBase,
+      rutaEsquivada: false,
+      data
+    };
+  }
+
+  const jsonInc = await obtenerIncidentesJson(bbox, apiKey);
+  if (pintadoObsoleto(seqToken) || !jsonInc) {
+    return {
+      bloqueos: [],
+      areasEvitadas: areasBase,
+      rutaEsquivada: false,
+      data
+    };
+  }
+
+  const bloqueos = detectarRoadblocksSobreRuta(data, jsonInc);
+  pintarMarcadoresRoadblocks(mapa, bloqueos);
+
+  if (!evitarAutomatico || bloqueos.length === 0) {
+    return {
+      bloqueos,
+      areasEvitadas: areasBase,
+      rutaEsquivada: false,
+      data
+    };
+  }
+
+  const areasNuevas = combinarAreasEvitar(areasBase, bloqueos);
+  if (areasNuevas.length <= areasBase.length) {
+    return {
+      bloqueos,
+      areasEvitadas: areasBase,
+      rutaEsquivada: false,
+      data
+    };
+  }
+
+  return {
+    bloqueos,
+    areasEvitadas: areasNuevas,
+    rutaEsquivada: true,
+    data,
+    requiereRecalculo: true
+  };
+}
+
 async function calcularRutaTomTom(
   mapa,
   origen,
@@ -364,6 +690,7 @@ async function calcularRutaTomTom(
 ) {
   limpiarLineasRuta(mapa);
   resetearEtiquetasResumen();
+  limpiarRoadblocksActivos();
 
   const validacion = validarOrigenYParadas(origen, paradas);
   if (!validacion.ok) {
@@ -378,68 +705,90 @@ async function calcularRutaTomTom(
   }
 
   const { origen: origenOk, paradas: paradasOk } = validacion;
-  const url = construirUrlRutaTomTom(origenOk, paradasOk, apiKey);
-  const fetchOpciones = { method: "GET" };
-
-  const areas = Array.isArray(areasEvitar) ? areasEvitar : [];
-  if (areas.length > 0) {
-    fetchOpciones.method = "POST";
-    fetchOpciones.headers = { "Content-Type": "application/json" };
-    fetchOpciones.body = JSON.stringify({
-      avoidAreas: { rectangles: areas }
-    });
-  }
+  const areasBase = Array.isArray(areasEvitar) ? [...areasEvitar] : [];
+  const evitarAutomatico =
+    opcionesPintado.autoEvitarRoadblocks !== false && areasBase.length === 0;
 
   try {
-    const response = await fetch(url, fetchOpciones);
-    const data = await response.json();
+    let data = await peticionRutaTomTom(origenOk, paradasOk, apiKey, areasBase);
 
-    if (!response.ok) {
-      console.error("TomTom Routing error:", response.status, data);
-      throw new Error(
-        data?.detailedError?.message || `TomTom respondió ${response.status}`
-      );
-    }
+    if (pintadoObsoleto(seqToken)) return null;
 
-    if (!data.routes?.length) {
-      alert("TomTom no encontró ninguna carretera válida entre esos puntos.");
-      return null;
-    }
+    let opcionesPintura = { ...opcionesPintado };
+    let pintado = pintarRutaDesdeDatos(mapa, data, opcionesPintura, seqToken);
 
-    const resumenViaje = aplicarSummaryAlPanel(data);
-    if (!resumenViaje) {
-      alert("TomTom no devolvió resumen de ruta.");
-      return null;
-    }
-
-    if (pintadoObsoleto(seqToken)) {
-      return null;
-    }
-
-    const capa = mapa ? pintarSeccionesEnMapa(mapa, data, opcionesPintado) : null;
-
-    if (pintadoObsoleto(seqToken)) {
-      limpiarLineasRuta(mapa);
-      return null;
-    }
-
-    if (!capa) {
+    if (!pintado) {
       limpiarLineasRuta(mapa);
       resetearEtiquetasResumen();
       console.error("TomTom: sin geometría pintable.", data);
-      alert("TomTom no devolvió geometría de carretera. Revisa la consola (F12).");
+      if (typeof alert === "function") {
+        alert("TomTom no devolvió geometría de carretera. Revisa la consola (F12).");
+      }
       return null;
     }
 
-    if (mapa) {
-      pintarIncidenciasDeRuta(mapa, data, apiKey).catch((errInc) => {
-        console.warn("Incidencias de ruta:", errInc);
-      });
+    let areasFinales = areasBase;
+    let rutaEsquivada = Boolean(opcionesPintado.rutaEsquivada);
+    let bloqueos = [];
+
+    const resultadoRb = await procesarRoadblocksTrasRuta(
+      mapa,
+      data,
+      apiKey,
+      areasBase,
+      evitarAutomatico,
+      seqToken
+    );
+
+    bloqueos = resultadoRb.bloqueos;
+    areasFinales = resultadoRb.areasEvitadas;
+
+    if (
+      resultadoRb.requiereRecalculo &&
+      !pintadoObsoleto(seqToken)
+    ) {
+      limpiarLineasRuta(mapa);
+      resetearEtiquetasResumen();
+
+      data = await peticionRutaTomTom(
+        origenOk,
+        paradasOk,
+        apiKey,
+        areasFinales
+      );
+
+      if (pintadoObsoleto(seqToken)) return null;
+
+      rutaEsquivada = true;
+      opcionesPintura = { ...opcionesPintado, rutaEsquivada: true };
+      pintado = pintarRutaDesdeDatos(mapa, data, opcionesPintura, seqToken);
+
+      if (!pintado) {
+        limpiarLineasRuta(mapa);
+        resetearEtiquetasResumen();
+        console.error("TomTom: sin geometría en ruta esquivando bloqueos.", data);
+        if (typeof alert === "function") {
+          alert(
+            "No se pudo dibujar la ruta alternativa. Prueba con otras paradas."
+          );
+        }
+        return null;
+      }
+
+      pintarMarcadoresRoadblocks(mapa, bloqueos);
     }
 
-    return { data, capa, resumenViaje };
+    return {
+      data,
+      capa: pintado.capa,
+      resumenViaje: pintado.resumenViaje,
+      roadblocks: [...roadblocksActivos],
+      areasEvitadas: areasFinales,
+      rutaEsquivada
+    };
   } catch (error) {
     limpiarLineasRuta(mapa);
+    limpiarRoadblocksActivos();
     resetearEtiquetasResumen();
     console.error("Error en la llamada de enrutamiento:", error);
     throw error;
@@ -606,90 +955,64 @@ function limpiarMarcadoresIncidencias(mapa) {
   marcadoresIncidencias = [];
 }
 
-function crearMarcadorIncidencia(lat, lon, textoPopup) {
+function crearMarcadorIncidencia(lat, lon, textoPopup, opciones = {}) {
+  let html = `<strong>${textoPopup}</strong>`;
+  if (opciones.enRuta) {
+    html +=
+      "<br><small>Bloqueo detectado en tu ruta. Se calculará alternativa si aplica.</small>";
+  }
   return L.circleMarker([lat, lon], {
     radius: 10,
     color: "#ffffff",
     weight: 2,
     fillColor: COLOR_INCIDENCIA_ROADBLOCK,
     fillOpacity: 0.95
-  }).bindPopup(`<strong>${textoPopup}</strong>`);
+  }).bindPopup(html);
 }
 
 /**
- * Roadblocks TomTom: bbox del viaje → Incident Details v4 → marcadores rojos en Leaflet.
+ * API pública: solo marcadores (sin recálculo). Usado si se invoca fuera del flujo principal.
  */
 async function pintarIncidenciasDeRuta(mapa, data, apiKey = "") {
   if (!mapa || !data?.routes?.length) {
-    return { total: 0, marcadores: [] };
+    return { total: 0, marcadores: [], roadblocks: [] };
   }
 
-  const chkIncidencias = document.getElementById("chk-trafico-incidencias");
-  if (chkIncidencias && !chkIncidencias.checked) {
+  if (!incidenciasHabilitadasEnUi()) {
     limpiarMarcadoresIncidencias(mapa);
-    return { total: 0, marcadores: [], ocultas: true };
+    limpiarRoadblocksActivos();
+    return { total: 0, marcadores: [], roadblocks: [], ocultas: true };
   }
-
-  limpiarMarcadoresIncidencias(mapa);
 
   const clave = apiKey?.trim() || "";
   if (!clave) {
     console.warn("Incidencias: falta clave API TomTom");
-    return { total: 0, marcadores: [] };
+    return { total: 0, marcadores: [], roadblocks: [] };
   }
 
   const bbox = bboxDesdeDatosRuta(data);
   if (!bbox) {
     console.warn("Incidencias: no se pudo calcular el bbox de la ruta");
-    return { total: 0, marcadores: [] };
+    return { total: 0, marcadores: [], roadblocks: [] };
   }
 
-  const url = construirUrlIncidentesTomTom(bbox, clave);
-
   try {
-    const response = await fetch(url);
-    const json = await response.json();
-
-    if (!response.ok) {
-      console.error("TomTom Incident Details:", response.status, json);
-      return { total: 0, marcadores: [] };
+    const json = await obtenerIncidentesJson(bbox, clave);
+    if (!json) {
+      return { total: 0, marcadores: [], roadblocks: [] };
     }
 
-    const pois = listaPoiDesdeRespuestaIncidencias(json);
-    const vistos = new Set();
+    const bloqueos = detectarRoadblocksSobreRuta(data, json);
+    pintarMarcadoresRoadblocks(mapa, bloqueos);
 
-    pois.forEach((poi, indice) => {
-      if (!esRoadblockPoi(poi)) return;
-
-      const coords = latLonDesdePoi(poi);
-      if (!coords) return;
-
-      const claveMarcador = `${coords.lat.toFixed(5)},${coords.lon.toFixed(5)}`;
-      if (vistos.has(claveMarcador)) return;
-      vistos.add(claveMarcador);
-
-      const titulo = etiquetaIncidenciaPoi(poi);
-      const marcador = crearMarcadorIncidencia(
-        coords.lat,
-        coords.lon,
-        titulo
-      );
-      marcador.addTo(mapa);
-      marcador.incidenciaDatos = {
-        id: poi.id || `inc-${indice}`,
-        lat: coords.lat,
-        lon: coords.lon,
-        descripcion: titulo,
-        tipo: titulo,
-        poi
-      };
-      marcadoresIncidencias.push(marcador);
-    });
-
-    return { total: marcadoresIncidencias.length, marcadores: marcadoresIncidencias };
+    return {
+      total: marcadoresIncidencias.length,
+      marcadores: marcadoresIncidencias,
+      roadblocks: [...roadblocksActivos]
+    };
   } catch (error) {
     console.error("Error al obtener incidencias TomTom:", error);
-    return { total: 0, marcadores: [] };
+    return { total: 0, marcadores: [], roadblocks: [] };
   }
 }
 
@@ -698,5 +1021,7 @@ if (typeof window !== "undefined") {
   window.limpiarLineasRuta = limpiarLineasRuta;
   window.limpiarRutaTomTom = limpiarRutaTomTom;
   window.limpiarMarcadoresIncidencias = limpiarMarcadoresIncidencias;
+  window.limpiarRoadblocksActivos = limpiarRoadblocksActivos;
   window.pintarIncidenciasDeRuta = pintarIncidenciasDeRuta;
+  window.obtenerRoadblocksActivos = () => [...roadblocksActivos];
 }
