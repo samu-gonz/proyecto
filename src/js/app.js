@@ -128,24 +128,23 @@ function resetearTotalesRuta() {
   totalTiempoSegundos = 0;
 }
 
-/**
- * Asigna distancia y tiempo SOLO desde routes[0].summary (sin += ni sumas por tramos).
- */
-function leerResumenTomTom(data) {
-  const summary = data?.routes?.[0]?.summary;
-  if (!summary) return null;
+/** Asigna totales desde el resumen TomTom (summary); sin acumular ni sumar tramos. */
+function aplicarResumenDesdeTomTom(dataOResumen) {
+  const resumen =
+    dataOResumen?.lengthInMeters != null
+      ? dataOResumen
+      : typeof extraerResumenRutaTomTom === "function"
+        ? extraerResumenRutaTomTom(dataOResumen)
+        : null;
 
-  totalDistanciaMetros = Number(summary.lengthInMeters) || 0;
-  totalTiempoSegundos = Number(summary.travelTimeInSeconds) || 0;
+  if (!resumen) {
+    resetearTotalesRuta();
+    return null;
+  }
 
-  const kilometros = (totalDistanciaMetros / 1000).toFixed(1);
-  const minutosConduccion = Math.round(totalTiempoSegundos / 60);
-
-  return {
-    kilometros,
-    minutosConduccion,
-    distanciaKm: totalDistanciaMetros / 1000
-  };
+  totalDistanciaMetros = resumen.lengthInMeters;
+  totalTiempoSegundos = resumen.travelTimeInSeconds;
+  return resumen;
 }
 
 function limpiarContenedorResumen(mensajeHtml = "") {
@@ -420,6 +419,12 @@ async function recalcularRutaAutomaticaAhora() {
     return;
   }
 
+  resetearTotalesRuta();
+  ocultarResumenRutaFlotante();
+  if (typeof limpiarRutaTomTom === "function") {
+    limpiarRutaTomTom(map);
+  }
+
   await calcularRuta({ resolverOrigen: false });
 }
 
@@ -614,30 +619,9 @@ function encuadrarRutaEnMapa(bounds) {
   }
 }
 
-function mostrarResumenRutaFlotante(datosTomTom) {
-  if (!leerResumenTomTom(datosTomTom)) {
-    ocultarResumenRutaFlotante();
-    return;
-  }
-  actualizarPanelFlotanteRuta();
-}
-
 function ocultarResumenRutaFlotante() {
   const panel = document.getElementById("ruta-stats-flotante");
   if (panel) panel.hidden = true;
-}
-
-function pintarRutaTomTomEnMapa(datosTomTom, opciones = {}) {
-  if (!opciones.rutaEsquivada && typeof limpiarRutaTomTom === "function") {
-    limpiarRutaTomTom(map);
-  }
-
-  const capaRuta = pintarRutaPorCarretera(map, datosTomTom, opciones);
-  if (capaRuta && capaRuta.getBounds) {
-    encuadrarRutaEnMapa(capaRuta.getBounds());
-  }
-  mostrarResumenRutaFlotante(datosTomTom);
-  return capaRuta;
 }
 
 async function esquivarIncidenciaTomTom(incidencia) {
@@ -695,11 +679,16 @@ async function esquivarIncidenciaTomTom(incidencia) {
       encuadrarRutaEnMapa(resultado.capa.getBounds());
     }
 
-    const stats = leerResumenTomTom(datosTomTom);
+    const stats =
+      resultado.resumenViaje || aplicarResumenDesdeTomTom(datosTomTom);
+    if (!stats) {
+      ocultarResumenRutaFlotante();
+      return;
+    }
     actualizarPanelFlotanteRuta();
 
-    const kilometros = stats?.kilometros ?? "0.0";
-    const minutosConduccion = stats?.minutosConduccion ?? 0;
+    const kilometros = stats.kilometros;
+    const minutosConduccion = stats.minutosConduccion;
 
     let html = `<p><strong>Ruta alternativa (esquivando incidencia)</strong></p>`;
     html += `<p>${incidencia.descripcion}</p>`;
@@ -1445,7 +1434,8 @@ async function calcularRuta(opciones = {}) {
       capasTraficoTomTom.mostrarEnRuta(capaRuta.getBounds());
     }
 
-    const statsViaje = leerResumenTomTom(datosTomTom);
+    const statsViaje =
+      resultadoRuta.resumenViaje || aplicarResumenDesdeTomTom(datosTomTom);
     if (!statsViaje) {
       resetearTotalesRuta();
       ocultarResumenRutaFlotante();
