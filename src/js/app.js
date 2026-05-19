@@ -127,7 +127,7 @@ function resetearPanelResumenUI() {
   } else {
     const elKm = document.getElementById("distancia-total");
     const elMin = document.getElementById("tiempo-conduccion");
-    if (elKm) elKm.textContent = "0 km";
+    if (elKm) elKm.textContent = "0.0 km";
     if (elMin) elMin.textContent = "0 min";
   }
 }
@@ -673,15 +673,17 @@ async function esquivarIncidenciaTomTom(incidencia) {
       encuadrarRutaEnMapa(resultado.capa.getBounds());
     }
 
-    const stats = resultado.resumenViaje;
-    if (!stats) {
+    const summary = datosTomTom.routes[0]?.summary;
+    if (!summary) {
       resetearPanelResumenUI();
       ocultarResumenRutaFlotante();
       return;
     }
 
-    const kilometros = stats.kilometros;
-    const minutosConduccion = stats.minutosConduccion;
+    const kilometros = (Number(summary.lengthInMeters) / 1000).toFixed(1);
+    const minutosConduccion = Math.round(
+      Number(summary.travelTimeInSeconds) / 60
+    );
 
     let html = `<p><strong>Ruta alternativa (esquivando incidencia)</strong></p>`;
     html += `<p>${incidencia.descripcion}</p>`;
@@ -898,10 +900,42 @@ async function resolverOrigenDesdeSelector() {
   establecerOrigenMaquina(maquina);
 }
 
+function mismasCoordenadasMaquina(a, b, tolerancia = 0.00015) {
+  const latA = Number(a?.lat);
+  const lonA = Number(a?.lon ?? a?.lng);
+  const latB = Number(b?.lat);
+  const lonB = Number(b?.lon ?? b?.lng);
+  if (!Number.isFinite(latA) || !Number.isFinite(lonA)) return false;
+  if (!Number.isFinite(latB) || !Number.isFinite(lonB)) return false;
+  return (
+    Math.abs(latA - latB) <= tolerancia && Math.abs(lonA - lonB) <= tolerancia
+  );
+}
+
+/**
+ * Paradas únicas para TomTom: sin origen duplicado ni coordenadas repetidas.
+ */
+function prepararParadasParaTomTom(origen, seleccionados) {
+  const vistos = new Set();
+  const paradas = [];
+
+  seleccionados.forEach((m) => {
+    if (origen?.maquinaId && m.id === origen.maquinaId) return;
+    if (origen && mismasCoordenadasMaquina(origen, m)) return;
+
+    const clave = `id:${m.id}`;
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+    paradas.push(m);
+  });
+
+  return paradas;
+}
+
 function obtenerDestinosRuta(seleccionados) {
   const origen = obtenerOrigenRuta();
-  if (!origen || !origen.maquinaId) return seleccionados;
-  return seleccionados.filter((m) => m.id !== origen.maquinaId);
+  if (!origen) return seleccionados;
+  return prepararParadasParaTomTom(origen, seleccionados);
 }
 
 function distanciaHaversine(lat1, lon1, lat2, lon2) {
@@ -976,21 +1010,36 @@ function limpiarTodoElMapa() {
 
   map.closePopup();
 
+  clearTimeout(recalcularRutaTimer);
+  recalcularRutaTimer = null;
+  calcularRutaSeq += 1;
+
   limpiarLineasRutaDelMapa();
-  limpiarEstadoRutaInterno();
   limpiarNumeroMarkers();
   limpiarMarcadoresOrigen();
-  ocultarResumenRutaFlotante();
 
+  estadoRutaReponedor = null;
   origenRuta = null;
   maquinaSeleccionadaId = null;
+  numeroMarkers = [];
 
   if (marcadorSeleccionadoLayer) {
     map.removeLayer(marcadorSeleccionadoLayer);
     marcadorSeleccionadoLayer = null;
   }
 
+  if (capasTraficoTomTom?.ocultarDeRuta) {
+    capasTraficoTomTom.ocultarDeRuta();
+  }
+
   maquinasVisibles.forEach((m) => marcarMaquinaEnLista(m.id, false));
+
+  const elKm = document.getElementById("distancia-total");
+  const elMin = document.getElementById("tiempo-conduccion");
+  if (elKm) elKm.textContent = "0.0 km";
+  if (elMin) elMin.textContent = "0 min";
+
+  ocultarResumenRutaFlotante();
 
   const select = document.getElementById("select-origen");
   if (select) select.value = "gps";
@@ -1337,8 +1386,8 @@ async function calcularRuta(opciones = {}) {
       : origenRaw;
 
   const seleccionados = obtenerSeleccionados();
-  const destinosRaw = obtenerDestinosRuta(seleccionados);
-  const destinos = destinosRaw
+  const destinosUnicos = prepararParadasParaTomTom(origen, seleccionados);
+  const destinos = destinosUnicos
     .map((m) =>
       typeof normalizarPuntoRuta === "function" ? normalizarPuntoRuta(m) : m
     )
@@ -1425,8 +1474,8 @@ async function calcularRuta(opciones = {}) {
       capasTraficoTomTom.mostrarEnRuta(capaRuta.getBounds());
     }
 
-    const statsViaje = resultadoRuta.resumenViaje;
-    if (!statsViaje) {
+    const summary = rutaTomTom.summary;
+    if (!summary) {
       limpiarEstadoRutaInterno();
       limpiarContenedorResumen(
         "<p><strong>TomTom no devolvió resumen de ruta.</strong></p>"
@@ -1434,9 +1483,15 @@ async function calcularRuta(opciones = {}) {
       return;
     }
 
-    const summary = rutaTomTom.summary || {};
-    const kilometros = statsViaje.kilometros;
-    const minutosConduccion = statsViaje.minutosConduccion;
+    const kilometros = (Number(summary.lengthInMeters) / 1000).toFixed(1);
+    const minutosConduccion = Math.round(
+      Number(summary.travelTimeInSeconds) / 60
+    );
+
+    if (typeof sincronizarEtiquetasResumen === "function") {
+      sincronizarEtiquetasResumen(kilometros, minutosConduccion);
+    }
+
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
     const tiempoServicioTotal = rutaOrdenada.reduce(
