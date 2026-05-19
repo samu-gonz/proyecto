@@ -1,7 +1,6 @@
 /**
- * Ruta TomTom: petición, resumen (summary) y pintado por secciones en el mapa.
- * La geometría sale de routes[0].sections (points o índices sobre legs[].points).
- * Nunca se dibuja entre waypoints/máquinas en línea recta.
+ * Enrutador TomTom: una sola petición, un solo summary, un solo pintado.
+ * lineasRutaActual controla todas las polilíneas en el mapa.
  */
 
 const COLORES_TRAFICO = {
@@ -12,8 +11,8 @@ const COLORES_TRAFICO = {
 
 const COLOR_RUTA_ESQUIVADA_BORDE = "#ff00aa";
 
-/** Polilíneas Leaflet activas; se vacía con limpiarCapasRutaDelMapa. */
-let capasRutaActual = [];
+/** Array global obligatorio — compartido con app.js para borrado físico. */
+var lineasRutaActual = [];
 
 function lonDePunto(p) {
   if (!p) return null;
@@ -48,7 +47,6 @@ function normalizarPuntoRuta(punto) {
 
 function validarOrigenYParadas(origen, paradas) {
   if (!coordenadasValidas(origen)) {
-    console.error("Coordenadas no válidas — origen:", origen);
     return {
       ok: false,
       mensaje: "Origen sin coordenadas válidas (lat/lon). Confirma el GPS o elige una máquina."
@@ -77,12 +75,9 @@ function validarOrigenYParadas(origen, paradas) {
 }
 
 function segmentoLatLon(punto) {
-  const lat = latDePunto(punto);
-  const lon = lonDePunto(punto);
-  return `${lat},${lon}`;
+  return `${latDePunto(punto)},${lonDePunto(punto)}`;
 }
 
-/** Origen → paradas → regreso; routeType=fastest, travelMode=car. */
 function construirUrlRutaTomTom(origen, paradas, apiKey) {
   const ubicaciones = [
     segmentoLatLon(origen),
@@ -95,6 +90,8 @@ function construirUrlRutaTomTom(origen, paradas, apiKey) {
     routeType: "fastest",
     travelMode: "car",
     traffic: "true",
+    trafficModel: "best",
+    departAt: "now",
     routeRepresentation: "polyline",
     sectionType: "traffic"
   });
@@ -102,7 +99,6 @@ function construirUrlRutaTomTom(origen, paradas, apiKey) {
   return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?${params.toString()}`;
 }
 
-/** Polilínea de carretera unificada (solo legs[].points de TomTom). */
 function polylineCarreteraDesdeRuta(data) {
   const legs = data?.routes?.[0]?.legs;
   if (!legs?.length) return [];
@@ -116,11 +112,7 @@ function polylineCarreteraDesdeRuta(data) {
   return puntos;
 }
 
-/**
- * Puntos Leaflet de una sección: primero seccion.points; si no, recorte por índices
- * sobre la polilínea de carretera (nunca coordenadas de máquinas).
- */
-function puntosLatLngDeSeccion(seccion, polylineCarretera) {
+function puntosCarreteraDeSeccion(seccion, polylineCarretera) {
   if (seccion.points?.length) {
     return seccion.points.map((p) => [p.latitude, p.longitude]);
   }
@@ -137,29 +129,25 @@ function puntosLatLngDeSeccion(seccion, polylineCarretera) {
   return polylineCarretera.slice(inicio, fin + 1);
 }
 
-function colorPorRetraso(delayInSeconds) {
-  const retraso = delayInSeconds ?? 0;
+function colorTraficoDeSeccion(seccion) {
+  const retraso = seccion.delayInSeconds ?? 0;
   if (retraso > 90) return COLORES_TRAFICO.congestion;
   if (retraso > 30) return COLORES_TRAFICO.lento;
   return COLORES_TRAFICO.fluido;
 }
 
-function colorDeSeccion(seccion) {
-  if (seccion.sectionType === "TRAFFIC") {
-    return colorPorRetraso(seccion.delayInSeconds);
-  }
-  return COLORES_TRAFICO.fluido;
-}
-
-function limpiarCapasRutaDelMapa(mapa) {
+/**
+ * LIMPIEZA INMEDIATA: quita capas del mapa y vacía el contenedor global.
+ */
+function limpiarLineasRuta(mapa) {
   if (mapa) {
-    capasRutaActual.forEach((linea) => {
+    lineasRutaActual.forEach((linea) => {
       if (linea && mapa.hasLayer(linea)) {
         mapa.removeLayer(linea);
       }
     });
   }
-  capasRutaActual = [];
+  lineasRutaActual = [];
 
   if (typeof limpiarMarcadoresIncidencias === "function" && mapa) {
     limpiarMarcadoresIncidencias(mapa);
@@ -167,28 +155,36 @@ function limpiarCapasRutaDelMapa(mapa) {
 }
 
 function limpiarRutaTomTom(mapa) {
-  limpiarCapasRutaDelMapa(mapa);
+  limpiarLineasRuta(mapa);
 }
 
-function anadirPolylineAlMapa(mapa, puntos, color, opciones = {}) {
-  if (!mapa || !puntos || puntos.length < 2) return null;
-
-  const linea = L.polyline(puntos, {
-    color,
-    weight: opciones.rutaEsquivada ? 8 : 6,
-    opacity: 0.9,
-    lineJoin: "round",
-    lineCap: "round",
-    dashArray: opciones.rutaEsquivada ? "14 8" : undefined
-  });
-
-  linea.addTo(mapa);
-  capasRutaActual.push(linea);
-  return linea;
+function resetearEtiquetasResumen() {
+  sincronizarEtiquetasResumen("0.0", 0);
 }
 
-/** Kilómetros y minutos solo desde routes[0].summary (asignación directa). */
-function extraerResumenRutaTomTom(data) {
+/** Asignación directa al DOM (sin acumular). */
+function sincronizarEtiquetasResumen(kilometros, minutosConduccion) {
+  const elKm = document.getElementById("distancia-total");
+  const elMin = document.getElementById("tiempo-conduccion");
+  const panel = document.getElementById("ruta-stats-flotante");
+
+  const kmTexto = `${kilometros} km`;
+  const minTexto = `${minutosConduccion} min`;
+
+  if (elKm) elKm.textContent = kmTexto;
+  if (elMin) elMin.textContent = minTexto;
+
+  if (panel) {
+    if (Number(kilometros) <= 0) {
+      panel.hidden = true;
+    } else {
+      panel.textContent = `Distancia: ${kmTexto} | Tiempo: ${minTexto}`;
+      panel.hidden = false;
+    }
+  }
+}
+
+function resumenDesdeSummary(data) {
   const summary = data?.routes?.[0]?.summary;
   if (!summary) return null;
 
@@ -198,71 +194,32 @@ function extraerResumenRutaTomTom(data) {
   const minutosConduccion = Math.round(travelTimeInSeconds / 60);
 
   return {
-    distanciaKm: parseFloat(kilometros),
-    minutosConduccion,
     kilometros,
+    minutosConduccion,
     lengthInMeters,
     travelTimeInSeconds
   };
 }
 
 function capaAgrupadaParaBounds() {
-  if (capasRutaActual.length === 0) return null;
-  return L.featureGroup(capasRutaActual);
-}
-
-function geometriaPintableEnRuta(data) {
-  const ruta = data?.routes?.[0];
-  if (!ruta) return false;
-
-  const polyline = polylineCarreteraDesdeRuta(data);
-  const secciones = ruta.sections || [];
-
-  if (secciones.length > 0) {
-    return secciones.some(
-      (s) => puntosLatLngDeSeccion(s, polyline).length >= 2
-    );
-  }
-
-  return polyline.length >= 2;
+  if (lineasRutaActual.length === 0) return null;
+  return L.featureGroup(lineasRutaActual);
 }
 
 /**
- * Pinta routes[0].sections recorriendo seccion.points (o recorte por índices).
+ * Pintado tramo a tramo: solo geometría de sections (carretera).
  */
-function pintarRutaPorCarretera(mapa, data, opciones = {}) {
-  if (!mapa || !data?.routes?.length) {
-    return null;
-  }
-
-  limpiarCapasRutaDelMapa(mapa);
-
+function pintarSeccionesEnMapa(mapa, data, opciones = {}) {
   const ruta = data.routes[0];
   const polyline = polylineCarreteraDesdeRuta(data);
   const secciones = [...(ruta.sections || [])].sort(
     (a, b) => (a.startPointIndex ?? 0) - (b.startPointIndex ?? 0)
   );
 
-  const tramos = [];
-
-  if (secciones.length > 0) {
-    secciones.forEach((seccion) => {
-      const puntos = puntosLatLngDeSeccion(seccion, polyline);
-      if (puntos.length < 2) return;
-      tramos.push({ puntos, color: colorDeSeccion(seccion) });
-    });
-  } else if (polyline.length >= 2) {
-    tramos.push({ puntos: polyline, color: COLORES_TRAFICO.fluido });
-  }
-
-  if (tramos.length === 0) {
-    return null;
-  }
-
   if (opciones.rutaEsquivada) {
     const contorno = [];
-    tramos.forEach((t) => {
-      t.puntos.forEach((pt) => contorno.push(pt));
+    secciones.forEach((seccion) => {
+      puntosCarreteraDeSeccion(seccion, polyline).forEach((pt) => contorno.push(pt));
     });
     if (contorno.length >= 2) {
       const borde = L.polyline(contorno, {
@@ -271,17 +228,44 @@ function pintarRutaPorCarretera(mapa, data, opciones = {}) {
         opacity: 0.35,
         lineJoin: "round",
         lineCap: "round"
-      });
-      borde.addTo(mapa);
-      capasRutaActual.push(borde);
+      }).addTo(mapa);
+      lineasRutaActual.push(borde);
     }
   }
 
-  tramos.forEach((t) => {
-    anadirPolylineAlMapa(mapa, t.puntos, t.color, opciones);
+  let dibujadas = 0;
+
+  secciones.forEach((seccion) => {
+    const puntosCarretera = puntosCarreteraDeSeccion(seccion, polyline);
+    if (puntosCarretera.length < 2) return;
+
+    const colorTrafico = colorTraficoDeSeccion(seccion);
+    const nuevaLinea = L.polyline(puntosCarretera, {
+      color: colorTrafico,
+      weight: opciones.rutaEsquivada ? 8 : 6,
+      opacity: 0.9,
+      lineJoin: "round",
+      lineCap: "round",
+      dashArray: opciones.rutaEsquivada ? "14 8" : undefined
+    }).addTo(mapa);
+
+    lineasRutaActual.push(nuevaLinea);
+    dibujadas += 1;
   });
 
-  return capaAgrupadaParaBounds();
+  if (dibujadas === 0 && polyline.length >= 2) {
+    const lineaUnica = L.polyline(polyline, {
+      color: COLORES_TRAFICO.fluido,
+      weight: 6,
+      opacity: 0.9,
+      lineJoin: "round",
+      lineCap: "round"
+    }).addTo(mapa);
+    lineasRutaActual.push(lineaUnica);
+    dibujadas = 1;
+  }
+
+  return dibujadas > 0 ? capaAgrupadaParaBounds() : null;
 }
 
 async function calcularRutaTomTom(
@@ -292,16 +276,13 @@ async function calcularRutaTomTom(
   areasEvitar = null,
   opcionesPintado = {}
 ) {
-  if (mapa) {
-    limpiarCapasRutaDelMapa(mapa);
-  }
+  limpiarLineasRuta(mapa);
+  resetearEtiquetasResumen();
 
   const validacion = validarOrigenYParadas(origen, paradas);
   if (!validacion.ok) {
     console.error(validacion.mensaje);
-    if (typeof alert === "function") {
-      alert(validacion.mensaje);
-    }
+    if (typeof alert === "function") alert(validacion.mensaje);
     return null;
   }
 
@@ -324,13 +305,13 @@ async function calcularRutaTomTom(
   }
 
   try {
-    const res = await fetch(url, fetchOpciones);
-    const data = await res.json();
+    const response = await fetch(url, fetchOpciones);
+    const data = await response.json();
 
-    if (!res.ok) {
-      console.error("TomTom Routing error:", res.status, data);
+    if (!response.ok) {
+      console.error("TomTom Routing error:", response.status, data);
       throw new Error(
-        data?.detailedError?.message || `TomTom respondió ${res.status}`
+        data?.detailedError?.message || `TomTom respondió ${response.status}`
       );
     }
 
@@ -339,15 +320,25 @@ async function calcularRutaTomTom(
       return null;
     }
 
-    if (!geometriaPintableEnRuta(data)) {
-      alert(
-        "TomTom no devolvió geometría de carretera en sections/legs. Prueba de nuevo."
-      );
+    const resumenViaje = resumenDesdeSummary(data);
+    if (!resumenViaje) {
+      alert("TomTom no devolvió resumen de ruta.");
       return null;
     }
 
-    const resumenViaje = extraerResumenRutaTomTom(data);
-    const capa = mapa ? pintarRutaPorCarretera(mapa, data, opcionesPintado) : null;
+    sincronizarEtiquetasResumen(
+      resumenViaje.kilometros,
+      resumenViaje.minutosConduccion
+    );
+
+    const capa = mapa ? pintarSeccionesEnMapa(mapa, data, opcionesPintado) : null;
+
+    if (!capa) {
+      limpiarLineasRuta(mapa);
+      resetearEtiquetasResumen();
+      alert("TomTom no devolvió geometría de carretera en las secciones.");
+      return null;
+    }
 
     if (mapa && typeof pintarIncidenciasDeRuta === "function") {
       pintarIncidenciasDeRuta(mapa, data, apiKey).catch((errInc) => {
@@ -357,12 +348,15 @@ async function calcularRutaTomTom(
 
     return { data, capa, resumenViaje };
   } catch (error) {
-    if (mapa) {
-      limpiarCapasRutaDelMapa(mapa);
-    }
-    console.error("Error en la conexión con TomTom:", error);
+    limpiarLineasRuta(mapa);
+    resetearEtiquetasResumen();
+    console.error("Error en la llamada de enrutamiento:", error);
     throw error;
   }
+}
+
+function extraerResumenRutaTomTom(data) {
+  return resumenDesdeSummary(data);
 }
 
 function resumenTraficoRuta(rutaTomTom) {
@@ -374,7 +368,7 @@ function resumenTraficoRuta(rutaTomTom) {
   let fluido = 0;
 
   secciones.forEach((s) => {
-    const color = colorPorRetraso(s.delayInSeconds);
+    const color = colorTraficoDeSeccion(s);
     if (color === COLORES_TRAFICO.congestion) congestion += 1;
     else if (color === COLORES_TRAFICO.lento) lento += 1;
     else fluido += 1;
