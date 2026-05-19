@@ -189,21 +189,23 @@ function anadirPolylineAlMapa(mapa, puntos, color, opciones = {}) {
 }
 
 /**
- * Kilómetros y minutos SOLO desde routes[0].summary (sin sumas en bucles).
+ * Kilómetros y minutos SOLO desde routes[0].summary (asignación directa, sin +=).
  */
 function extraerResumenRutaTomTom(data) {
   const summary = data?.routes?.[0]?.summary;
   if (!summary) return null;
 
-  const kilometros = (summary.lengthInMeters / 1000).toFixed(1);
-  const minutosConduccion = Math.round(summary.travelTimeInSeconds / 60);
+  const lengthInMeters = Number(summary.lengthInMeters) || 0;
+  const travelTimeInSeconds = Number(summary.travelTimeInSeconds) || 0;
+  const kilometros = (lengthInMeters / 1000).toFixed(1);
+  const minutosConduccion = Math.round(travelTimeInSeconds / 60);
 
   return {
     distanciaKm: parseFloat(kilometros),
     minutosConduccion,
     kilometros,
-    lengthInMeters: summary.lengthInMeters,
-    travelTimeInSeconds: summary.travelTimeInSeconds
+    lengthInMeters,
+    travelTimeInSeconds
   };
 }
 
