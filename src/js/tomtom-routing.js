@@ -207,30 +207,91 @@ function limpiarRutaTomTom(mapa) {
 }
 
 function resetearEtiquetasResumen() {
-  sincronizarEtiquetasResumen("0.0", 0);
+  sincronizarEtiquetasResumen("0.0", 0, 0);
 }
 
-/** Escritura directa en DOM desde summary (sin acumular). */
-function sincronizarEtiquetasResumen(kilometros, minutosConduccion) {
+/**
+ * Cabecera y panel flotante: tiempo total = conducción TomTom + servicio en paradas.
+ */
+function sincronizarEtiquetasResumen(
+  kilometros,
+  minutosConduccion,
+  minutosServicio = 0
+) {
   const elKm = document.getElementById("distancia-total");
   const elMin = document.getElementById("tiempo-conduccion");
   const panel = document.getElementById("ruta-stats-flotante");
 
+  const conduccion = Math.max(0, Math.round(Number(minutosConduccion) || 0));
+  const servicio = Math.max(0, Math.round(Number(minutosServicio) || 0));
+  const total = conduccion + servicio;
+
   const kmTexto = `${kilometros} km`;
-  const minTexto = `${minutosConduccion} min`;
+  const minTexto = `${total} min`;
 
   if (elKm) elKm.textContent = kmTexto;
   if (elMin) elMin.textContent = minTexto;
 
   if (panel) {
     const kmNum = parseFloat(String(kilometros)) || 0;
-    if (kmNum <= 0) {
+    if (kmNum <= 0 || total <= 0) {
       panel.hidden = true;
     } else {
-      panel.textContent = `Distancia: ${kmTexto} | Tiempo: ${minTexto}`;
+      panel.textContent = `Distancia: ${kmTexto} | Total: ${minTexto}`;
       panel.hidden = false;
     }
   }
+}
+
+/** km/h medios a partir del summary de TomTom. */
+function velocidadMediaDesdeSummary(lengthInMeters, travelTimeInSeconds) {
+  if (!travelTimeInSeconds || travelTimeInSeconds <= 0) return 0;
+  const km = lengthInMeters / 1000;
+  return km / (travelTimeInSeconds / 3600);
+}
+
+/**
+ * Tiempos de conducción en isla: si TomTom devuelve media muy baja (p. ej. origen en montaña
+ * sin acceso vial directo), se usa una estimación prudente ~45 km/h sobre los km de la ruta.
+ */
+function minutosConduccionDesdeSummary(summary) {
+  const lengthInMeters = Number(summary.lengthInMeters) || 0;
+  const travelTimeInSeconds = Number(summary.travelTimeInSeconds) || 0;
+  const km = lengthInMeters / 1000;
+  const minutosTomTom = Math.round(travelTimeInSeconds / 60);
+  const velMedia = velocidadMediaDesdeSummary(lengthInMeters, travelTimeInSeconds);
+
+  const VELOCIDAD_MEDIA_MIN_KMH = 32;
+  const VELOCIDAD_PRUDENTE_ISLA_KMH = 45;
+  const KM_MINIMOS_PARA_REVISAR = 12;
+
+  if (
+    km >= KM_MINIMOS_PARA_REVISAR &&
+    velMedia > 0 &&
+    velMedia < VELOCIDAD_MEDIA_MIN_KMH
+  ) {
+    const minutosCorregidos = Math.max(
+      Math.round((km / VELOCIDAD_PRUDENTE_ISLA_KMH) * 60),
+      Math.round(km * 1.1)
+    );
+    return {
+      minutosConduccion: minutosCorregidos,
+      minutosTomTom,
+      tiempoAjustado: true,
+      velocidadMediaKmH: Math.round(velMedia),
+      motivoAjuste:
+        "TomTom calculó un trazado muy lento (carreteras de montaña o acceso poco habitual). " +
+        "Se muestra una estimación prudente para la isla."
+    };
+  }
+
+  return {
+    minutosConduccion: minutosTomTom,
+    minutosTomTom,
+    tiempoAjustado: false,
+    velocidadMediaKmH: Math.round(velMedia),
+    motivoAjuste: null
+  };
 }
 
 /** Lee routes[0].summary una sola vez. */
@@ -241,21 +302,23 @@ function resumenDesdeSummary(data) {
   const lengthInMeters = Number(summary.lengthInMeters) || 0;
   const travelTimeInSeconds = Number(summary.travelTimeInSeconds) || 0;
   const kilometros = (lengthInMeters / 1000).toFixed(1);
-  const minutosConduccion = Math.round(travelTimeInSeconds / 60);
+  const tiempos = minutosConduccionDesdeSummary(summary);
 
   return {
     kilometros,
-    minutosConduccion,
+    minutosConduccion: tiempos.minutosConduccion,
+    minutosTomTom: tiempos.minutosTomTom,
+    tiempoAjustado: tiempos.tiempoAjustado,
+    motivoAjuste: tiempos.motivoAjuste,
+    velocidadMediaKmH: tiempos.velocidadMediaKmH,
     lengthInMeters,
     travelTimeInSeconds
   };
 }
 
+/** Solo lee summary; las etiquetas las actualiza app.js con servicio en paradas. */
 function aplicarSummaryAlPanel(data) {
-  const resumen = resumenDesdeSummary(data);
-  if (!resumen) return null;
-  sincronizarEtiquetasResumen(resumen.kilometros, resumen.minutosConduccion);
-  return resumen;
+  return resumenDesdeSummary(data);
 }
 
 function capaAgrupadaParaBounds() {
@@ -1024,4 +1087,5 @@ if (typeof window !== "undefined") {
   window.limpiarRoadblocksActivos = limpiarRoadblocksActivos;
   window.pintarIncidenciasDeRuta = pintarIncidenciasDeRuta;
   window.obtenerRoadblocksActivos = () => [...roadblocksActivos];
+  window.resumenDesdeSummary = resumenDesdeSummary;
 }

@@ -54,7 +54,8 @@ const PUNTOS_ISLA = [
   { nombre: "Vilaflor", zona: "Valle", lat: 28.1580, lng: -16.6350 },
   { nombre: "San Miguel", zona: "Valle", lat: 28.0980, lng: -16.6170 },
   { nombre: "La Esperanza", zona: "Valle", lat: 28.4450, lng: -16.4410 },
-  { nombre: "Las Cañadas del Teide", zona: "Valle", lat: 28.2720, lng: -16.6420 },
+  // Acceso TF-24 (Portillo): en el cráter TomTom enruta ~80 km por vías lentas del parque
+  { nombre: "Las Cañadas del Teide", zona: "Valle", lat: 28.3508, lng: -16.5197 },
   { nombre: "Arico", zona: "Este", lat: 28.1720, lng: -16.4780 },
   { nombre: "Porís de Abona", zona: "Sur", lat: 28.1350, lng: -16.5120 },
   { nombre: "Callao Salvaje", zona: "Sur", lat: 28.1420, lng: -16.7580 },
@@ -716,14 +717,34 @@ async function esquivarIncidenciaTomTom(incidencia) {
       return;
     }
 
-    const kilometros = (Number(summary.lengthInMeters) / 1000).toFixed(1);
-    const minutosConduccion = Math.round(
-      Number(summary.travelTimeInSeconds) / 60
+    const resumenViajeDatos =
+      typeof resumenDesdeSummary === "function"
+        ? resumenDesdeSummary(datosTomTom)
+        : null;
+    const kilometros =
+      resumenViajeDatos?.kilometros ??
+      (Number(summary.lengthInMeters) / 1000).toFixed(1);
+    const minutosConduccion =
+      resumenViajeDatos?.minutosConduccion ??
+      Math.round(Number(summary.travelTimeInSeconds) / 60);
+    const tiempoServicioTotal = paradasOk.reduce(
+      (acc, p) => acc + tiempoServicioMinutos(p),
+      0
     );
+    const tiempoTotalEstimado = minutosConduccion + tiempoServicioTotal;
+
+    if (typeof sincronizarEtiquetasResumen === "function") {
+      sincronizarEtiquetasResumen(
+        kilometros,
+        minutosConduccion,
+        tiempoServicioTotal
+      );
+    }
 
     let html = `<p><strong>Ruta alternativa (esquivando incidencia)</strong></p>`;
     html += `<p>${incidencia.descripcion}</p>`;
-    html += `<p><strong>Distancia:</strong> ${kilometros} km · <strong>Tiempo conducción:</strong> ${minutosConduccion} min</p>`;
+    html += `<p><strong>Distancia:</strong> ${kilometros} km · <strong>Tiempo total:</strong> ${tiempoTotalEstimado} min</p>`;
+    html += `<p class="small">Conducción ${minutosConduccion} min + servicio ${tiempoServicioTotal} min</p>`;
     html += `<p class="small">Línea fucsia = ruta que evita la zona marcada.</p>`;
     resumenDiv.innerHTML = html;
     guardarEstadoSesion();
@@ -1645,14 +1666,17 @@ async function invocarEnrutamientoTomTom() {
       return;
     }
 
-    const kilometros = (Number(summary.lengthInMeters) / 1000).toFixed(1);
-    const minutosConduccion = Math.round(
-      Number(summary.travelTimeInSeconds) / 60
-    );
-
-    if (typeof sincronizarEtiquetasResumen === "function") {
-      sincronizarEtiquetasResumen(kilometros, minutosConduccion);
-    }
+    const resumenViajeDatos =
+      resultadoRuta?.resumenViaje ||
+      (typeof resumenDesdeSummary === "function"
+        ? resumenDesdeSummary(datosTomTom)
+        : null);
+    const kilometros =
+      resumenViajeDatos?.kilometros ??
+      (Number(summary.lengthInMeters) / 1000).toFixed(1);
+    const minutosConduccion =
+      resumenViajeDatos?.minutosConduccion ??
+      Math.round(Number(summary.travelTimeInSeconds) / 60);
 
     statsTrafico = resumenTraficoRuta(rutaTomTom);
 
@@ -1660,6 +1684,15 @@ async function invocarEnrutamientoTomTom() {
       (acc, p) => acc + tiempoServicioMinutos(p),
       0
     );
+    const tiempoTotalEstimado = minutosConduccion + tiempoServicioTotal;
+
+    if (typeof sincronizarEtiquetasResumen === "function") {
+      sincronizarEtiquetasResumen(
+        kilometros,
+        minutosConduccion,
+        tiempoServicioTotal
+      );
+    }
 
     let html = "";
     if (avisoRuta) html += `<p>${avisoRuta}</p>`;
@@ -1677,7 +1710,14 @@ async function invocarEnrutamientoTomTom() {
     }
     html += `<p><strong>Paradas a visitar:</strong> ${paradasParaTomTom.length}</p>`;
     html += `<p><strong>Distancia total:</strong> ${kilometros} km</p>`;
-    html += `<p><strong>Tiempo conducción:</strong> ${minutosConduccion} min</p>`;
+    html += `<p><strong>Tiempo conducción:</strong> ${minutosConduccion} min`;
+    if (resumenViajeDatos?.velocidadMediaKmH) {
+      html += ` <span class="small">(~${resumenViajeDatos.velocidadMediaKmH} km/h según trazado TomTom)</span>`;
+    }
+    html += "</p>";
+    if (resumenViajeDatos?.tiempoAjustado && resumenViajeDatos?.motivoAjuste) {
+      html += `<p class="small">${resumenViajeDatos.motivoAjuste} (TomTom: ${resumenViajeDatos.minutosTomTom} min).</p>`;
+    }
     if (summary.trafficDelayInSeconds > 0) {
       html += `<p><strong>Retraso por tráfico:</strong> ${Math.round(summary.trafficDelayInSeconds / 60)} min</p>`;
     }
@@ -1688,6 +1728,7 @@ async function invocarEnrutamientoTomTom() {
       html += `<span style="color:#FF1744">■</span> ${statsTrafico.congestion} congestionados</p>`;
     }
     html += `<p><strong>Tiempo servicio en paradas:</strong> ${tiempoServicioTotal} min</p>`;
+    html += `<p><strong>Tiempo total estimado:</strong> ${tiempoTotalEstimado} min</p>`;
 
     html += "<h3>Orden de visita</h3>";
     html += "<ol>";
