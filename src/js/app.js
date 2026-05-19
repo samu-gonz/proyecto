@@ -396,7 +396,6 @@ async function recalcularRutaAutomaticaAhora() {
     return;
   }
 
-  limpiarRutaAntesDeNuevoCalculo();
   await calcularRuta({ resolverOrigen: false });
 }
 
@@ -655,13 +654,17 @@ async function esquivarIncidenciaTomTom(incidencia) {
       typeof normalizarPuntoRuta === "function" ? normalizarPuntoRuta(p) : p
     );
 
+    const seqEsquivar = ++calcularRutaSeq;
+    window.__rutaSeqActiva = seqEsquivar;
+
     const resultado = await calcularRutaTomTom(
       map,
       origenOk,
       paradasOk,
       claveTomTom,
       areasEvitadas,
-      { rutaEsquivada: true }
+      { rutaEsquivada: true },
+      seqEsquivar
     );
 
     if (!resultado?.data) {
@@ -1013,6 +1016,7 @@ function limpiarTodoElMapa() {
   clearTimeout(recalcularRutaTimer);
   recalcularRutaTimer = null;
   calcularRutaSeq += 1;
+  window.__rutaSeqActiva = calcularRutaSeq;
 
   limpiarLineasRutaDelMapa();
   limpiarNumeroMarkers();
@@ -1344,6 +1348,7 @@ async function calcularRuta(opciones = {}) {
   const { resolverOrigen = true } = opciones;
   const resumenDiv = document.getElementById("resumen");
   const miSeq = ++calcularRutaSeq;
+  window.__rutaSeqActiva = miSeq;
 
   limpiarRutaAntesDeNuevoCalculo();
 
@@ -1438,10 +1443,12 @@ async function calcularRuta(opciones = {}) {
       rutaOrdenada,
       claveTomTom,
       null,
-      {}
+      {},
+      miSeq
     );
 
     if (miSeq !== calcularRutaSeq) {
+      limpiarLineasRutaDelMapa();
       return;
     }
 

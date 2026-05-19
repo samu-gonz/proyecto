@@ -103,19 +103,28 @@ function segmentoLatLon(punto) {
 }
 
 /**
- * Origen → paradas (sin repetir origen al final: evita bucle ida/vuelta inflado).
- * URL en texto plano; sectionType=Traffic con T mayúscula.
+ * Origen → paradas (sin vuelta al origen).
+ * URL en texto plano (sin URLSearchParams).
+ * Query: sectionType=traffic (minúscula; TomTom rechaza "Traffic" con 400).
+ * La respuesta trae sectionType "TRAFFIC" en cada sección.
  */
 function construirUrlRutaTomTom(origen, paradas, apiKey) {
   const tramos = [segmentoLatLon(origen)];
   paradas.forEach((p) => tramos.push(segmentoLatLon(p)));
   const ubicaciones = tramos.join(":");
 
-  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&trafficModel=best&departAt=now&routeRepresentation=polyline&sectionType=Traffic`;
+  return `https://api.tomtom.com/routing/1/calculateRoute/${ubicaciones}/json?key=${apiKey}&routeType=fastest&travelMode=car&traffic=true&departAt=now&routeRepresentation=polyline&sectionType=traffic`;
 }
 
 function polylineCarreteraDesdeRuta(data) {
-  const legs = data?.routes?.[0]?.legs;
+  const ruta = data?.routes?.[0];
+  if (!ruta) return [];
+
+  if (ruta.points?.length) {
+    return ruta.points.map((p) => [p.latitude, p.longitude]);
+  }
+
+  const legs = ruta.legs;
   if (!legs?.length) return [];
 
   const puntos = [];
@@ -257,8 +266,14 @@ function pintarPolylineEnMapa(mapa, puntos, color, opciones = {}) {
 function pintarSeccionesEnMapa(mapa, data, opciones = {}) {
   const ruta = data.routes[0];
   const polyline = polylineCarreteraDesdeRuta(data);
+
+  if (polyline.length < 2) {
+    console.warn("TomTom: sin puntos en legs[].points ni routes[0].points");
+    return null;
+  }
+
   const secciones = [...(ruta.sections || [])]
-    .filter((s) => esSeccionTrafico(s) || s.points?.length)
+    .filter((s) => esSeccionTrafico(s))
     .sort((a, b) => (a.startPointIndex ?? 0) - (b.startPointIndex ?? 0));
 
   if (opciones.rutaEsquivada && secciones.length > 0) {
@@ -292,12 +307,21 @@ function pintarSeccionesEnMapa(mapa, data, opciones = {}) {
     dibujadas += 1;
   });
 
-  if (dibujadas === 0 && polyline.length >= 2) {
+  if (dibujadas === 0) {
     pintarPolylineEnMapa(mapa, polyline, COLORES_TRAFICO.fluido, opciones);
     dibujadas = 1;
   }
 
   return dibujadas > 0 ? capaAgrupadaParaBounds() : null;
+}
+
+function pintadoObsoleto(seqToken) {
+  return (
+    seqToken != null &&
+    typeof window !== "undefined" &&
+    window.__rutaSeqActiva != null &&
+    seqToken !== window.__rutaSeqActiva
+  );
 }
 
 async function calcularRutaTomTom(
@@ -306,7 +330,8 @@ async function calcularRutaTomTom(
   paradas,
   apiKey,
   areasEvitar = null,
-  opcionesPintado = {}
+  opcionesPintado = {},
+  seqToken = null
 ) {
   limpiarLineasRuta(mapa);
   resetearEtiquetasResumen();
@@ -358,12 +383,23 @@ async function calcularRutaTomTom(
       return null;
     }
 
+    if (pintadoObsoleto(seqToken)) {
+      limpiarLineasRuta(mapa);
+      return null;
+    }
+
     const capa = mapa ? pintarSeccionesEnMapa(mapa, data, opcionesPintado) : null;
+
+    if (pintadoObsoleto(seqToken)) {
+      limpiarLineasRuta(mapa);
+      return null;
+    }
 
     if (!capa) {
       limpiarLineasRuta(mapa);
       resetearEtiquetasResumen();
-      alert("TomTom no devolvió geometría de carretera en las secciones.");
+      console.error("TomTom: sin geometría pintable.", data);
+      alert("TomTom no devolvió geometría de carretera. Revisa la consola (F12).");
       return null;
     }
 
