@@ -88,6 +88,7 @@ let maquinaSeleccionadaId = null;
 let marcadorSeleccionadoLayer = null;
 let guardarEstadoTimeout = null;
 let restaurandoSesion = false;
+let recalcularRutaTimer = null;
 
 const STORAGE_KEY = "planificador-ruta-tenerife-v1";
 
@@ -325,6 +326,50 @@ function initSelectOrigen() {
 function marcarMaquinaEnLista(id, checked) {
   const chk = document.getElementById(`maq-${id}`);
   if (chk) chk.checked = checked;
+}
+
+/**
+ * Recalcula la ruta al cambiar paradas u origen (debounce para no saturar TomTom).
+ */
+function recalcularRutaAutomatica() {
+  if (restaurandoSesion) return;
+
+  clearTimeout(recalcularRutaTimer);
+  recalcularRutaTimer = setTimeout(() => {
+    recalcularRutaAutomaticaAhora();
+  }, 300);
+}
+
+async function recalcularRutaAutomaticaAhora() {
+  const resumenDiv = document.getElementById("resumen");
+  const seleccionados = obtenerSeleccionados();
+
+  if (seleccionados.length === 0) {
+    limpiarRutaEnMapa();
+    limpiarNumeroMarkers();
+    ocultarResumenRutaFlotante();
+    estadoRutaReponedor = null;
+    if (resumenDiv) {
+      resumenDiv.innerHTML =
+        "<p>Selecciona al menos una máquina para ver la ruta en el mapa.</p>";
+    }
+    programarGuardadoEstado();
+    return;
+  }
+
+  const origenRaw = obtenerOrigenRuta();
+  if (
+    !origenRaw ||
+    (typeof coordenadasValidas === "function" && !coordenadasValidas(origenRaw))
+  ) {
+    if (resumenDiv) {
+      resumenDiv.innerHTML =
+        "<p>Confirma tu ubicación GPS o elige un origen de partida para calcular la ruta.</p>";
+    }
+    return;
+  }
+
+  await calcularRuta({ resolverOrigen: false });
 }
 
 function detenerSeguimientoGPS() {
@@ -659,8 +704,8 @@ async function aplicarOrigenMaquinaYRecalcular(maquina) {
   establecerOrigenMaquina(maquina);
   const estado = document.getElementById("geo-estado");
   estado.className = "small geo-estado ok";
-  estado.textContent = `Origen: ${maquina.nombre}. Calculando ruta en el mapa...`;
-  await calcularRuta({ resolverOrigen: false });
+  estado.textContent = `Origen: ${maquina.nombre}. Actualizando ruta...`;
+  await recalcularRutaAutomaticaAhora();
 }
 
 function iniciarSeguimientoGPS() {
@@ -767,6 +812,7 @@ async function confirmarUbicacionGPS() {
       "¡Ubicación confirmada! Seguimiento activo: el marcador se mueve contigo.";
 
     programarGuardadoEstado();
+    await recalcularRutaAutomaticaAhora();
     return true;
   } catch (err) {
     detenerSeguimientoGPS();
@@ -931,7 +977,8 @@ function reiniciarMapa() {
 
   const resumen = document.getElementById("resumen");
   if (resumen) {
-    resumen.innerHTML = '<p>Selecciona máquinas y pulsa "Calcular ruta".</p>';
+    resumen.innerHTML =
+      "<p>Selecciona máquinas para calcular la ruta automáticamente en el mapa.</p>";
   }
 
   const geo = document.getElementById("geo-estado");
@@ -1015,7 +1062,8 @@ function crearPopupMaquina(maquina) {
   btnIncluir.addEventListener("click", async () => {
     marcarMaquinaEnLista(maquina.id, true);
     irAMaquinaEnMapa(maquina);
-    await calcularRuta({ resolverOrigen: false });
+    map.closePopup();
+    await recalcularRutaAutomaticaAhora();
   });
 
   acciones.appendChild(btnCentrar);
@@ -1112,6 +1160,9 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
     input.id = `maq-${m.id}`;
     input.value = m.id;
     input.checked = idsSeleccionados.includes(m.id);
+    input.addEventListener("change", () => {
+      recalcularRutaAutomatica();
+    });
 
     const label = document.createElement("label");
     label.htmlFor = input.id;
@@ -1179,12 +1230,12 @@ async function aplicarFiltroZona(recalcularRuta = true) {
 
   if (idsValidos.length === 0) {
     resumenDiv.innerHTML =
-      "<p>Selecciona máquinas y pulsa \"Calcular ruta\".</p>";
+      "<p>Selecciona al menos una máquina para ver la ruta en el mapa.</p>";
     return;
   }
 
   if (recalcularRuta) {
-    await calcularRuta();
+    await recalcularRutaAutomaticaAhora();
   }
 }
 
@@ -1264,13 +1315,15 @@ async function calcularRuta(opciones = {}) {
 
   if (destinos.length === 0) {
     limpiarRutaEnMapa();
+    limpiarNumeroMarkers();
     ocultarResumenRutaFlotante();
+    estadoRutaReponedor = null;
     resumenDiv.innerHTML =
       "<p>Selecciona al menos una máquina para visitar (distinta del origen si partes de una máquina).</p>";
+    programarGuardadoEstado();
     return;
   }
 
-  limpiarRutaEnMapa();
   limpiarNumeroMarkers();
   ocultarResumenRutaFlotante();
   estadoRutaReponedor = null;
