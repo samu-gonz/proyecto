@@ -98,6 +98,9 @@ let misParadasSeleccionadas = [];
 
 /** Grupo Leaflet con todas las líneas de tráfico (app.js). */
 let grupoLineasRutaApp = null;
+let departAtSeleccionadoIsoApp = null;
+let fetchTomTomPatcheadoApp = false;
+let rutaAlternativaActivaIndexApp = 0;
 
 /** Conteo de tramos para el panel del menú lateral. */
 let conteoTraficoRutaApp = { verde: 0, amarillo: 0, rojo: 0 };
@@ -107,6 +110,8 @@ const COLORES_TRAMO_TRAFICO_APP = {
   amarillo: "#FFD600",
   rojo: "#FF1744"
 };
+
+const ID_SELECTOR_FECHA_FUTURA = "selector-fecha-futura";
 
 const STORAGE_KEY = "planificador-ruta-tenerife-v1";
 
@@ -176,6 +181,147 @@ function limpiarContenedorResumen(mensajeHtml = "") {
 function ocultarResumenRutaFlotante() {
   const panel = document.getElementById("ruta-stats-flotante");
   if (panel) panel.hidden = true;
+}
+
+function formatearDepartAtDesdeInput(valorInput) {
+  if (!valorInput) return null;
+  let fechaInput = valorInput.split(".")[0];
+  if (fechaInput.endsWith("Z")) {
+    fechaInput = fechaInput.slice(0, -1);
+  }
+  if (fechaInput.length === 16) {
+    fechaInput += ":00";
+  }
+  return fechaInput;
+}
+
+function leerDepartAtSeleccionadoDesdeUI() {
+  const input = document.getElementById(ID_SELECTOR_FECHA_FUTURA);
+  if (!input?.value) return null;
+  return formatearDepartAtDesdeInput(input.value);
+}
+
+function asegurarSelectorFechaFuturaEnSidebar() {
+  if (document.getElementById(ID_SELECTOR_FECHA_FUTURA)) return;
+
+  const btnRuta = document.getElementById("btn-ruta");
+  if (!btnRuta?.parentNode) return;
+
+  const cont = document.createElement("div");
+  cont.id = "bloque-fecha-futura-ruta";
+  cont.style.margin = "10px 0 12px";
+  cont.style.padding = "10px";
+  cont.style.border = "1px solid #d8dce5";
+  cont.style.borderRadius = "10px";
+  cont.style.background = "#f8fafc";
+
+  const label = document.createElement("label");
+  label.htmlFor = ID_SELECTOR_FECHA_FUTURA;
+  label.textContent = "Salida (predicción de tráfico)";
+  label.style.display = "block";
+  label.style.fontWeight = "600";
+  label.style.marginBottom = "6px";
+
+  const input = document.createElement("input");
+  input.type = "datetime-local";
+  input.id = ID_SELECTOR_FECHA_FUTURA;
+  input.className = "input-fecha-futura";
+  input.style.width = "100%";
+  input.style.padding = "8px 10px";
+  input.style.border = "1px solid #c9d2e3";
+  input.style.borderRadius = "8px";
+  input.style.background = "#ffffff";
+  input.style.boxSizing = "border-box";
+
+  const nota = document.createElement("p");
+  nota.className = "small";
+  nota.style.margin = "6px 0 0";
+  nota.textContent =
+    "Vacío = tráfico en tiempo real. Con fecha = predicción para esa hora.";
+
+  cont.appendChild(label);
+  cont.appendChild(input);
+  cont.appendChild(nota);
+
+  btnRuta.parentNode.insertBefore(cont, btnRuta);
+}
+
+function parchearFetchTomTomConDepartAt() {
+  if (fetchTomTomPatcheadoApp) return;
+  if (typeof window.fetch !== "function") return;
+
+  const fetchOriginal = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const urlOriginal = typeof input === "string" ? input : input?.url;
+    if (
+      typeof urlOriginal !== "string" ||
+      !urlOriginal.includes("api.tomtom.com/routing/1/calculateRoute/")
+    ) {
+      return fetchOriginal(input, init);
+    }
+
+    try {
+      // 1. Capturar el valor del input del HTML
+      let fechaInput = document.getElementById(ID_SELECTOR_FECHA_FUTURA)?.value || "";
+      if (!fechaInput && departAtSeleccionadoIsoApp) {
+        fechaInput = departAtSeleccionadoIsoApp;
+      }
+
+      // 2. Base de la URL de TomTom con las coordenadas de la ruta
+      const urlParseada = new URL(urlOriginal);
+      const matchPoints = urlParseada.pathname.match(/\/calculateRoute\/(.+)\/json$/);
+      if (!matchPoints?.[1]) {
+        return fetchOriginal(input, init);
+      }
+      const points = matchPoints[1];
+      let urlBase = `https://api.tomtom.com/routing/1/calculateRoute/${points}/json`;
+
+      // 3. Crear un objeto nativo de parámetros para evitar codificaciones basura
+      const params = new URLSearchParams();
+      urlParseada.searchParams.forEach((value, key) => {
+        if (key === "departAt" || key === "traffic" || key === "computeTravelTimeFor") return;
+        params.append(key, value);
+      });
+      params.set("maxAlternatives", "2");
+
+      let urlTomTom = "";
+      // 4. VALIDACIÓN ULTRA ESPECÍFICA DE LA FECHA FUTURA
+      if (fechaInput) {
+        let fechaFinal = fechaInput.split(".")[0];
+        if (fechaFinal.endsWith("Z")) {
+          fechaFinal = fechaFinal.slice(0, -1);
+        }
+        if (fechaFinal.length === 16) {
+          fechaFinal += ":00";
+        }
+
+        // INYECCIÓN MANUAL SIN CODIFICAR:
+        urlTomTom =
+          urlBase +
+          "?" +
+          params.toString() +
+          "&computeTravelTimeFor=all&traffic=true&departAt=" +
+          fechaFinal;
+      } else {
+        // Si no hay fecha, se añade la configuración normal en tiempo real
+        urlTomTom = urlBase + "?" + params.toString();
+      }
+
+      // 5. EL CHIVATO DEFINITIVO (Inspección visual antes de enviar)
+      console.log("🚀 URL REAL ENVIADA A TOMTOM:", urlTomTom);
+      console.log("URL enviada a TomTom:", urlTomTom);
+
+      if (typeof input === "string") {
+        return fetchOriginal(urlTomTom, init);
+      }
+      const req = new Request(urlTomTom, input);
+      return fetchOriginal(req, init);
+    } catch {
+      return fetchOriginal(input, init);
+    }
+  };
+
+  fetchTomTomPatcheadoApp = true;
 }
 
 function leerEstadoGuardado() {
@@ -634,8 +780,15 @@ function ordenarSeccionesParaPintadoApp(a, b) {
   return 0;
 }
 
-function polylineCarreteraDesdeDatosApp(data) {
-  const ruta = data?.routes?.[0];
+function rutaTomTomPorIndiceApp(data, rutaIndex = 0) {
+  const rutas = data?.routes || [];
+  if (!rutas.length) return null;
+  const idx = Math.min(Math.max(0, Number(rutaIndex) || 0), rutas.length - 1);
+  return rutas[idx];
+}
+
+function polylineCarreteraDesdeDatosApp(data, rutaTomTom = null) {
+  const ruta = rutaTomTom || data?.routes?.[0];
   if (!ruta) return [];
 
   const legs = ruta.legs;
@@ -748,26 +901,20 @@ function pintarHuecosPolylineEnGrupo(grupo, polyline, indicesCubiertos, color, o
   }
 }
 
-/**
- * Pinta trozo a trozo por sections (slice sobre legs[].points); sin línea verde global.
- */
-function pintarRutaTraficoFragmentadaEnMapa(mapa, data, opciones = {}) {
-  limpiarGrupoLineasRutaApp(mapa);
-  if (typeof limpiarLineasRuta === "function") {
-    limpiarLineasRuta(mapa);
-  }
-
-  const polyline = polylineCarreteraDesdeDatosApp(data);
+function pintarRutaActivaConTraficoEnGrupo(
+  grupoLineasRuta,
+  data,
+  rutaTomTom,
+  opciones = {}
+) {
+  const polyline = polylineCarreteraDesdeDatosApp(data, rutaTomTom);
   if (polyline.length < 2) {
-    return null;
+    return;
   }
 
-  const secciones = [...(data?.routes?.[0]?.sections || [])]
+  const secciones = [...(rutaTomTom?.sections || [])]
     .filter((s) => esSeccionPintableEnMapaApp(s))
     .sort(ordenarSeccionesParaPintadoApp);
-
-  const grupoLineasRuta = L.featureGroup().addTo(mapa);
-  grupoLineasRutaApp = grupoLineasRuta;
 
   if (opciones.rutaEsquivada) {
     grupoLineasRuta.addLayer(
@@ -807,21 +954,84 @@ function pintarRutaTraficoFragmentadaEnMapa(mapa, data, opciones = {}) {
       opciones
     );
   });
+}
+
+function pintarRutaAlternativaEnGrupo(grupoLineasRuta, data, rutaTomTom, onClick) {
+  const polyline = polylineCarreteraDesdeDatosApp(data, rutaTomTom);
+  if (polyline.length < 2) return;
+
+  const lineaAlternativa = L.polyline(polyline, {
+    color: "#9E9E9E",
+    weight: 5,
+    opacity: 0.45,
+    lineJoin: "round",
+    lineCap: "round",
+    dashArray: "10 8"
+  });
+
+  if (typeof onClick === "function") {
+    lineaAlternativa.on("click", onClick);
+  }
+  grupoLineasRuta.addLayer(lineaAlternativa);
+}
+
+function pintarRutasConAlternativasEnMapa(mapa, data, opciones = {}) {
+  limpiarGrupoLineasRutaApp(mapa);
+  if (typeof limpiarLineasRuta === "function") {
+    limpiarLineasRuta(mapa);
+  }
+
+  const rutas = data?.routes || [];
+  if (!rutas.length) return null;
+
+  const idxActiva = Math.min(
+    Math.max(0, Number(opciones.rutaActivaIndex ?? rutaAlternativaActivaIndexApp) || 0),
+    rutas.length - 1
+  );
+  rutaAlternativaActivaIndexApp = idxActiva;
+
+  const grupoLineasRuta = L.featureGroup().addTo(mapa);
+  grupoLineasRutaApp = grupoLineasRuta;
+
+  rutas.forEach((ruta, idx) => {
+    if (idx === idxActiva) return;
+    pintarRutaAlternativaEnGrupo(grupoLineasRuta, data, ruta, () => {
+      rutaAlternativaActivaIndexApp = idx;
+      const capaActiva = pintarRutasConAlternativasEnMapa(mapa, data, {
+        ...opciones,
+        rutaActivaIndex: idx
+      });
+      actualizarTraficoMenuDesdeDatos(data, idx);
+      if (capasTraficoTomTom?.mostrarEnRuta && capaActiva?.getBounds) {
+        capasTraficoTomTom.mostrarEnRuta(capaActiva.getBounds());
+      }
+    });
+  });
+
+  const rutaActiva = rutas[idxActiva];
+  pintarRutaActivaConTraficoEnGrupo(grupoLineasRuta, data, rutaActiva, opciones);
 
   if (grupoLineasRuta.getBounds().isValid()) {
     mapa.fitBounds(grupoLineasRuta.getBounds(), { padding: [50, 50] });
   }
-
   return grupoLineasRuta.getLayers().length > 0 ? grupoLineasRuta : null;
 }
 
-function contarTramosTraficoDesdeDatos(data) {
+/**
+ * Compatibilidad con llamadas existentes: pinta la ruta activa + alternativas.
+ */
+function pintarRutaTraficoFragmentadaEnMapa(mapa, data, opciones = {}) {
+  return pintarRutasConAlternativasEnMapa(mapa, data, opciones);
+}
+
+function contarTramosTraficoDesdeDatos(data, rutaIndex = 0) {
   let rojos = 0;
   let amarillos = 0;
   let verdes = 0;
 
-  const polyline = polylineCarreteraDesdeDatosApp(data);
-  const secciones = [...(data?.routes?.[0]?.sections || [])].filter((s) =>
+  const rutaTomTom = rutaTomTomPorIndiceApp(data, rutaIndex);
+  const polyline = polylineCarreteraDesdeDatosApp(data, rutaTomTom);
+  const secciones = [...(rutaTomTom?.sections || [])].filter((s) =>
     esSeccionPintableEnMapaApp(s)
   );
   if (!secciones.length) {
@@ -840,8 +1050,8 @@ function contarTramosTraficoDesdeDatos(data) {
   return { rojo: rojos, amarillo: amarillos, verde: verdes };
 }
 
-function actualizarTraficoMenuDesdeDatos(data) {
-  actualizarPanelTraficoMenuLateral(contarTramosTraficoDesdeDatos(data));
+function actualizarTraficoMenuDesdeDatos(data, rutaIndex = 0) {
+  actualizarPanelTraficoMenuLateral(contarTramosTraficoDesdeDatos(data, rutaIndex));
 }
 
 function ensurePanelTraficoMenuLateral() {
@@ -1011,11 +1221,11 @@ async function esquivarIncidenciaTomTom(incidencia) {
     }
 
     const datosTomTom = resultado.data;
-
+    rutaAlternativaActivaIndexApp = 0;
     const capaEsquivada = pintarRutaTraficoFragmentadaEnMapa(map, datosTomTom, {
       rutaEsquivada: true
     });
-    actualizarTraficoMenuDesdeDatos(datosTomTom);
+    actualizarTraficoMenuDesdeDatos(datosTomTom, rutaAlternativaActivaIndexApp);
     if (!capaEsquivada) {
       return;
     }
@@ -1952,12 +2162,32 @@ async function invocarEnrutamientoTomTom() {
     }
 
     const datosTomTom = resultadoRuta.data;
-    const rutaTomTom = datosTomTom.routes[0];
+    rutaAlternativaActivaIndexApp = 0;
+    const rutaTomTom = rutaTomTomPorIndiceApp(
+      datosTomTom,
+      rutaAlternativaActivaIndexApp
+    );
+    console.log("TomTom summary tráfico:", {
+      trafficDelayInSeconds: rutaTomTom?.summary?.trafficDelayInSeconds ?? null,
+      travelTimeInSeconds: rutaTomTom?.summary?.travelTimeInSeconds ?? null,
+      liveTrafficIncidentsTravelTimeInSeconds:
+        rutaTomTom?.summary?.liveTrafficIncidentsTravelTimeInSeconds ?? null
+    });
+    console.log(
+      "TomTom sections (muestra):",
+      (rutaTomTom?.sections || []).slice(0, 12).map((s) => ({
+        sectionType: s.sectionType,
+        delayInSeconds: s.delayInSeconds,
+        magnitudeOfDelay: s.magnitudeOfDelay,
+        startPointIndex: s.startPointIndex,
+        endPointIndex: s.endPointIndex
+      }))
+    );
 
     const capaRuta = pintarRutaTraficoFragmentadaEnMapa(map, datosTomTom, {
       rutaEsquivada: Boolean(resultadoRuta?.rutaEsquivada)
     });
-    actualizarTraficoMenuDesdeDatos(datosTomTom);
+    actualizarTraficoMenuDesdeDatos(datosTomTom, rutaAlternativaActivaIndexApp);
     statsTrafico = statsTraficoDesdeConteoApp(conteoTraficoRutaApp);
 
     if (!capaRuta) {
@@ -1981,7 +2211,7 @@ async function invocarEnrutamientoTomTom() {
       capasTraficoTomTom.mostrarEnRuta(capaRuta.getBounds());
     }
 
-    const summary = rutaTomTom.summary;
+    const summary = rutaTomTom?.summary;
     if (!summary) {
       limpiarEstadoRutaInterno();
       limpiarContenedorResumen(
@@ -2118,6 +2348,7 @@ async function calcularRuta(opciones = {}) {
   const saltarResolverExplicito = opciones.resolverOrigen === false;
   const valorOrigen = document.getElementById("select-origen")?.value ?? "gps";
   let resolverOrigen = !saltarResolverExplicito;
+  departAtSeleccionadoIsoApp = leerDepartAtSeleccionadoDesdeUI();
 
   if (saltarResolverExplicito || origenListoParaSelector()) {
     resolverOrigen = false;
@@ -2144,6 +2375,8 @@ async function calcularRuta(opciones = {}) {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  asegurarSelectorFechaFuturaEnSidebar();
+  parchearFetchTomTomConDepartAt();
   initSelectOrigen();
   initMap();
   ensurePanelTraficoMenuLateral();
