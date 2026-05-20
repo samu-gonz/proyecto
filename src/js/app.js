@@ -917,80 +917,32 @@ function pintarRutaActivaConTraficoEnGrupo(grupoLineasRuta, rutaTomTom, opciones
     );
   }
 
-  const legs = rutaTomTom?.legs || [];
-  const todosLosLegsTienenPuntos =
-    legs.length > 0 && legs.every((leg) => (leg.points || []).length >= 2);
-  if (!todosLosLegsTienenPuntos) {
-    const seccionesRuta = [...(rutaTomTom?.sections || [])]
-      .filter((s) => esSeccionPintableEnMapaApp(s))
-      .sort(ordenarSeccionesParaPintadoApp);
-    const indicesCubiertosRuta = indicesCubiertosPorSeccionesApp(
-      seccionesRuta,
-      polylineRutaCompleta.length
-    );
-    pintarHuecosPolylineEnGrupo(
+  // Robusto para múltiples paradas: sections globales sobre la polyline completa.
+  const seccionesRuta = [...(rutaTomTom?.sections || [])]
+    .filter((s) => esSeccionPintableEnMapaApp(s))
+    .sort(ordenarSeccionesParaPintadoApp);
+
+  const indicesCubiertosRuta = indicesCubiertosPorSeccionesApp(
+    seccionesRuta,
+    polylineRutaCompleta.length
+  );
+  pintarHuecosPolylineEnGrupo(
+    grupoLineasRuta,
+    polylineRutaCompleta,
+    indicesCubiertosRuta,
+    COLORES_TRAMO_TRAFICO_APP.verde,
+    opciones
+  );
+
+  seccionesRuta.forEach((seccion) => {
+    const puntosTramo = puntosCarreteraDeSeccionApp(seccion, polylineRutaCompleta);
+    if (puntosTramo.length < 2) return;
+    agregarPolylineAlGrupoRuta(
       grupoLineasRuta,
-      polylineRutaCompleta,
-      indicesCubiertosRuta,
-      COLORES_TRAMO_TRAFICO_APP.verde,
+      puntosTramo,
+      colorTramoTraficoApp(seccion),
       opciones
     );
-    seccionesRuta.forEach((seccion) => {
-      const puntosTramo = puntosCarreteraDeSeccionApp(seccion, polylineRutaCompleta);
-      if (puntosTramo.length < 2) return;
-      agregarPolylineAlGrupoRuta(
-        grupoLineasRuta,
-        puntosTramo,
-        colorTramoTraficoApp(seccion),
-        opciones
-      );
-    });
-    return;
-  }
-
-  // Ruta principal por legs: garantiza conectar todas las máquinas/paradas.
-  legs.forEach((leg) => {
-    const puntosLeg = (leg.points || [])
-      .map((p) => [Number(p.latitude), Number(p.longitude)])
-      .filter((pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
-    if (puntosLeg.length < 2) return;
-
-    const seccionesLeg = [...(leg.sections || [])]
-      .filter((s) => esSeccionPintableEnMapaApp(s))
-      .sort(ordenarSeccionesParaPintadoApp);
-
-    if (!seccionesLeg.length) {
-      agregarPolylineAlGrupoRuta(
-        grupoLineasRuta,
-        puntosLeg,
-        COLORES_TRAMO_TRAFICO_APP.verde,
-        opciones
-      );
-      return;
-    }
-
-    const indicesCubiertosLeg = indicesCubiertosPorSeccionesApp(
-      seccionesLeg,
-      puntosLeg.length
-    );
-    pintarHuecosPolylineEnGrupo(
-      grupoLineasRuta,
-      puntosLeg,
-      indicesCubiertosLeg,
-      COLORES_TRAMO_TRAFICO_APP.verde,
-      opciones
-    );
-
-    seccionesLeg.forEach((seccion) => {
-      const puntosTramo = puntosCarreteraDeSeccionApp(seccion, puntosLeg);
-      if (puntosTramo.length < 2) return;
-      agregarPolylineAlGrupoRuta(
-        grupoLineasRuta,
-        puntosTramo,
-        colorTramoTraficoApp(seccion),
-        opciones
-      );
-    });
   });
 }
 
@@ -1052,32 +1004,6 @@ function contarTramosTraficoDesdeDatos(data, rutaIndex = 0) {
   const rutaTomTom = rutaTomTomPorIndiceApp(data, rutaIndex);
   if (!rutaTomTom) return { rojo: 0, amarillo: 0, verde: 0 };
 
-  const legs = rutaTomTom.legs || [];
-  const todosLosLegsTienenPuntos =
-    legs.length > 0 && legs.every((leg) => (leg.points || []).length >= 2);
-  if (todosLosLegsTienenPuntos) {
-    legs.forEach((leg) => {
-      const puntosLeg = (leg.points || [])
-        .map((p) => [Number(p.latitude), Number(p.longitude)])
-        .filter((pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
-      if (puntosLeg.length < 2) return;
-
-      const seccionesLeg = [...(leg.sections || [])]
-        .filter((s) => esSeccionPintableEnMapaApp(s))
-        .sort(ordenarSeccionesParaPintadoApp);
-
-      seccionesLeg.forEach((seccion) => {
-        if (puntosCarreteraDeSeccionApp(seccion, puntosLeg).length < 2) return;
-        const nivel = clasificarTramoTraficoApp(seccion);
-        if (nivel === "rojo") rojos++;
-        else if (nivel === "amarillo") amarillos++;
-        else verdes++;
-      });
-    });
-    return { rojo: rojos, amarillo: amarillos, verde: verdes };
-  }
-
-  // Fallback por si TomTom no trae sections en legs.
   const polyline = polylineCarreteraDesdeDatosApp(data, rutaTomTom);
   const seccionesRuta = [...(rutaTomTom.sections || [])]
     .filter((s) => esSeccionPintableEnMapaApp(s))
