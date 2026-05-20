@@ -918,7 +918,9 @@ function pintarRutaActivaConTraficoEnGrupo(grupoLineasRuta, rutaTomTom, opciones
   }
 
   const legs = rutaTomTom?.legs || [];
-  if (!legs.length) {
+  const todosLosLegsTienenPuntos =
+    legs.length > 0 && legs.every((leg) => (leg.points || []).length >= 2);
+  if (!todosLosLegsTienenPuntos) {
     const seccionesRuta = [...(rutaTomTom?.sections || [])]
       .filter((s) => esSeccionPintableEnMapaApp(s))
       .sort(ordenarSeccionesParaPintadoApp);
@@ -1051,7 +1053,9 @@ function contarTramosTraficoDesdeDatos(data, rutaIndex = 0) {
   if (!rutaTomTom) return { rojo: 0, amarillo: 0, verde: 0 };
 
   const legs = rutaTomTom.legs || [];
-  if (legs.length) {
+  const todosLosLegsTienenPuntos =
+    legs.length > 0 && legs.every((leg) => (leg.points || []).length >= 2);
+  if (todosLosLegsTienenPuntos) {
     legs.forEach((leg) => {
       const puntosLeg = (leg.points || [])
         .map((p) => [Number(p.latitude), Number(p.longitude)])
