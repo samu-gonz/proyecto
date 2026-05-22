@@ -660,8 +660,20 @@ function colocarMarcadorOrigenMaquina(maquina) {
     .bindPopup(`<b>Origen de ruta</b><br>${maquina.nombre}`);
 }
 
-function centrarMapaEn(lat, lng, zoom = 14) {
-  map.flyTo([lat, lng], zoom, { duration: 0.7 });
+/** Centra sin forzar zoom alto (permite alejar después con la rueda o +/-). */
+function centrarMapaEn(lat, lng, zoom = null) {
+  if (!map) return;
+  if (zoom == null) {
+    map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    return;
+  }
+  const maxZ = map.getMaxZoom?.() ?? 22;
+  const zoomDestino = Math.min(Math.max(zoom, map.getMinZoom?.() ?? 5), maxZ);
+  if (map.getZoom() > zoomDestino) {
+    map.panTo([lat, lng], { animate: true, duration: 0.5 });
+  } else {
+    map.flyTo([lat, lng], zoomDestino, { duration: 0.7 });
+  }
 }
 
 function limpiarLineasRutaDelMapa() {
@@ -1593,9 +1605,7 @@ function limpiarRutaEnMapa() {
 }
 
 function encuadrarRutaEnMapa(bounds) {
-  if (bounds && bounds.isValid()) {
-    map.fitBounds(bounds, { padding: [30, 30] });
-  }
+  encuadrarMapa(bounds, { padding: [30, 30], maxZoom: 12 });
 }
 
 /** Origen GPS + paradas + geometría: evita zoom solo a un tramo de tráfico mal indexado. */
@@ -1617,7 +1627,7 @@ function encuadrarVistaRutaCompleta(origen, paradas, boundsCapa) {
     puntos.push(boundsCapa.getSouthWest(), boundsCapa.getNorthEast());
   }
   if (puntos.length > 0) {
-    map.fitBounds(L.latLngBounds(puntos), { padding: [50, 50] });
+    encuadrarMapa(L.latLngBounds(puntos), { padding: [50, 50], maxZoom: 11 });
   }
 }
 
@@ -1757,7 +1767,7 @@ function establecerOrigenMaquina(maquina, opciones = {}) {
   actualizarInfoOrigen();
 
   if (centrar) {
-    centrarMapaEn(maquina.lat, maquina.lng, 14);
+    centrarMapaEn(maquina.lat, maquina.lng);
   }
 
   if (maquinasVisibles.some((m) => m.id === maquina.id)) {
@@ -2116,11 +2126,6 @@ function limpiarTodoElMapa() {
   limpiarEstadoGuardado();
 }
 
-const VISTA_INICIAL_TENERIFE = {
-  center: [28.2916, -16.6291],
-  zoom: 10
-};
-
 function reiniciarMapa() {
   limpiarTodoElMapa();
 }
@@ -2131,7 +2136,7 @@ function limpiarNumeroMarkers() {
 }
 
 function irAMaquinaEnMapa(maquina) {
-  centrarMapaEn(maquina.lat, maquina.lng, 15);
+  centrarMapaEn(maquina.lat, maquina.lng);
   seleccionarMaquinaEnMapa(maquina);
 }
 
@@ -2159,7 +2164,7 @@ async function onSeleccionMaquinaEnLista(maquina, checked) {
   if (checked) {
     seleccionarMaquinaEnMapa(maquina);
     if (!origenRuta?.esGPS) {
-      centrarMapaEn(maquina.lat, maquina.lng, 15);
+      centrarMapaEn(maquina.lat, maquina.lng);
     }
   }
   programarGuardadoEstado();
@@ -2288,11 +2293,11 @@ function ajustarVistaMapa(maquinas) {
 
   if (puntos.length === 1) {
     const p = puntos[0];
-    map.setView([p.lat, p.lng], 12);
+    map.setView([p.lat, p.lng], Math.min(12, map.getMaxZoom()));
     return;
   }
 
-  map.fitBounds(L.latLngBounds(puntos), { padding: [40, 40] });
+  encuadrarMapa(L.latLngBounds(puntos), { padding: [40, 40], maxZoom: 11 });
 }
 
 function actualizarIndicadorFiltro(texto, cantidad) {
@@ -2313,7 +2318,7 @@ async function onSeleccionParadaEnMenuLateral(maquina, checked) {
   if (checked) {
     seleccionarMaquinaEnMapa(maquina);
     if (!origenRuta?.esGPS) {
-      centrarMapaEn(maquina.lat, maquina.lng, 15);
+      centrarMapaEn(maquina.lat, maquina.lng);
     }
   }
   programarGuardadoEstado();
@@ -2370,7 +2375,7 @@ function renderListaMaquinas(maquinas, idsSeleccionados) {
       actualizarItinerarioParada(m, checked);
       if (checked) {
         seleccionarMaquinaEnMapa(m);
-        centrarMapaEn(m.lat, m.lng, 15);
+        centrarMapaEn(m.lat, m.lng);
       }
       programarGuardadoEstado();
       programarEnrutamientoDesdeLista();
@@ -2391,6 +2396,21 @@ const BOUNDS_TENERIFE = L.latLngBounds(
   [28.65, -16.05]
 );
 
+const VISTA_INICIAL_TENERIFE = {
+  center: [28.2916, -16.6291],
+  zoom: 9
+};
+
+/** Encuadra sin bloquear zoom out: maxZoom limita acercamiento, minZoom del mapa sigue en 5. */
+function encuadrarMapa(bounds, opciones = {}) {
+  if (!map || !bounds?.isValid?.()) return;
+  map.fitBounds(bounds, {
+    padding: opciones.padding ?? [40, 40],
+    maxZoom: opciones.maxZoom ?? 12,
+    animate: opciones.animate !== false
+  });
+}
+
 function initMap(mapEl) {
   const target = mapEl || document.getElementById("map");
   if (!target) return;
@@ -2401,14 +2421,27 @@ function initMap(mapEl) {
     capasTraficoTomTom = null;
   }
 
-  map = L.map(target, { maxZoom: 22 });
+  map = L.map(target, {
+    minZoom: 5,
+    maxZoom: 22,
+    zoomControl: true,
+    scrollWheelZoom: true,
+    touchZoom: true,
+    doubleClickZoom: true,
+    boxZoom: true
+  });
+
+  if (map.scrollWheelZoom?.enable) {
+    map.scrollWheelZoom.enable();
+  }
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    minZoom: 0,
     maxZoom: 22,
     attribution: "&copy; OpenStreetMap"
   }).addTo(map);
 
-  map.fitBounds(BOUNDS_TENERIFE, { padding: [30, 30] });
+  map.setView(VISTA_INICIAL_TENERIFE.center, VISTA_INICIAL_TENERIFE.zoom);
 
   requestAnimationFrame(() => map?.invalidateSize());
   setTimeout(() => map?.invalidateSize(), 250);
@@ -2898,9 +2931,12 @@ function pintarRutaPrincipalMultiparadaPlantillaApp(data, paradasEsperadas = 0) 
     tramosAmarillos = conteoGlobal.amarillo;
   }
 
-  if (polyCompleta.length >= 2 && map.getBounds) {
+  if (polyCompleta.length >= 2) {
     try {
-      map.fitBounds(polyCompleta, { padding: [40, 40] });
+      encuadrarMapa(L.latLngBounds(polyCompleta), {
+        padding: [40, 40],
+        maxZoom: 11
+      });
     } catch {
       /* ignorar bounds inválidos */
     }
