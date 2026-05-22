@@ -2,7 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -12,6 +12,7 @@ import {
   registerPlanificadorUi,
   unregisterPlanificadorUi
 } from "../js/planificador-ui-bridge.js";
+import { MSG_RUTA } from "../js/mensajes-ruta.js";
 
 const PlanificadorContext = createContext(null);
 
@@ -19,21 +20,16 @@ const MAQUINAS_ORDENADAS = [...MAQUINAS].sort((a, b) =>
   a.nombre.localeCompare(b.nombre, "es")
 );
 
-const RESUMEN_INICIAL =
-  "<p>Selecciona máquinas para calcular la ruta automáticamente en el mapa.</p>";
-
 export function PlanificadorProvider({ children }) {
   const mapRef = useRef(null);
   const [listaMaquinas, setListaMaquinas] = useState(MAQUINAS);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
-  const [resumenHtml, setResumenHtml] = useState(RESUMEN_INICIAL);
+  const [resumenHtml, setResumenHtml] = useState(MSG_RUTA.resumenInicial);
   const [geoEstado, setGeoEstado] = useState({
     className: "small geo-estado",
-    text: "La ruta se dibuja en el mapa. Elige origen y máquinas a visitar."
+    text: MSG_RUTA.geoInicial
   });
-  const [origenInfoHtml, setOrigenInfoHtml] = useState(
-    '<p class="small">Selecciona un punto de partida.</p>'
-  );
+  const [origenInfoHtml, setOrigenInfoHtml] = useState(MSG_RUTA.origenInfoVacio);
   const [filtroActivo, setFiltroActivo] = useState(
     `Mostrando las ${MAQUINAS.length} máquinas.`
   );
@@ -41,8 +37,8 @@ export function PlanificadorProvider({ children }) {
   const [inputZona, setInputZona] = useState("");
   const [departAt, setDepartAt] = useState("");
   const [panelTrafico, setPanelTrafico] = useState({
-    hidden: true,
-    html: "Tráfico: calcula una ruta para ver los tramos."
+    hidden: false,
+    html: MSG_RUTA.panelTraficoInicial
   });
 
   const getSelectedMaquinaIds = useCallback(
@@ -65,7 +61,7 @@ export function PlanificadorProvider({ children }) {
     setSelectedIds(new Set(idsSeleccionados.map(Number)));
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     registerPlanificadorUi({
       setResumenHtml,
       getDepartAt: () => departAt,

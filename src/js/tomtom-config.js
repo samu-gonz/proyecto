@@ -4,7 +4,6 @@
  */
 const TOMTOM_API_KEY =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_TOMTOM_API_KEY) ||
-  (import.meta.env?.DEV ? "I1QN7ntpSqnErI9axpXW1qKCJhVeUROX" : "") ||
   "";
 
 if (TOMTOM_API_KEY) {

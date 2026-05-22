@@ -23,8 +23,9 @@ export default function OriginSection() {
         id="select-origen"
         value={selectOrigen}
         onChange={(e) => {
-          setSelectOrigen(e.target.value);
-          void onSelectOrigenChange();
+          const valor = e.target.value;
+          setSelectOrigen(valor);
+          void onSelectOrigenChange(valor);
         }}
       >
         <option value="gps">Mi ubicación actual</option>

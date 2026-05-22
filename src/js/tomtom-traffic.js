@@ -1,3 +1,5 @@
+import { puntosCarreteraDesdeDatos } from "./tomtom-routing.js";
+
 /**
  * Tráfico TomTom: flujo opcional + incidencias solo sobre la ruta calculada.
  * Fuentes: routes[0].incidents, secciones TRAFFIC de la ruta, o Incident Details
@@ -295,10 +297,7 @@ function extraerIncidenciasDeRuta(data) {
       .map((inc, i) => normalizarIncidenciaRutaTomTom(inc, i))
       .filter(Boolean);
   } else {
-    const puntosGlobales =
-      typeof puntosCarreteraDesdeDatos === "function"
-        ? puntosCarreteraDesdeDatos(data)
-        : [];
+    const puntosGlobales = puntosCarreteraDesdeDatos(data);
 
     incidencias = seccionesTraficoDeRuta(ruta)
       .filter((s) => esSeccionIncidenciaEnRuta(s))
@@ -368,10 +367,7 @@ function normalizarIncidenciaDetalle(feature, indice) {
 async function obtenerIncidenciasEnCorredorRuta(data, apiKey) {
   if (!apiKey?.trim()) return [];
 
-  const puntos =
-    typeof puntosCarreteraDesdeDatos === "function"
-      ? puntosCarreteraDesdeDatos(data)
-      : [];
+  const puntos = puntosCarreteraDesdeDatos(data);
   const bbox = bboxDesdePuntosRuta(puntos);
   if (!bbox) return [];
 

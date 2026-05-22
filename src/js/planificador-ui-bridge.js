@@ -1,4 +1,7 @@
-/** Puente entre app.js (motor de ruta) y la UI React. */
+/**
+ * Puente entre app.js (motor de ruta) y la UI React.
+ * Prioridad: la ruta en mapa; este módulo solo sincroniza estado visual.
+ */
 
 let api = null;
 
@@ -140,7 +143,7 @@ export function uiSetPanelTrafico(payload) {
 
 export function uiResetPanelTraficoMensaje(texto) {
   uiSetPanelTrafico({
-    hidden: true,
-    html: texto ?? "Tráfico: calcula una ruta para ver los tramos."
+    hidden: false,
+    html: texto ?? ""
   });
 }

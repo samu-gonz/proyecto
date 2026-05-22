@@ -16,13 +16,19 @@ export default function ZoneSearch() {
           placeholder="Ej: Norte, Sur, La Laguna, Oeste..."
           autoComplete="off"
           onKeyDown={(e) => {
-            if (e.key === "Enter") void aplicarFiltroZona(true);
+            if (e.key === "Enter") void aplicarFiltroZona(true, inputZona);
           }}
           onInput={(e) => {
-            if (!e.currentTarget.value.trim()) void aplicarFiltroZona(false);
+            const v = e.currentTarget.value;
+            setInputZona(v);
+            if (!v.trim()) void aplicarFiltroZona(false, v);
           }}
         />
-        <button type="button" id="btn-buscar" onClick={() => void aplicarFiltroZona(true)}>
+        <button
+          type="button"
+          id="btn-buscar"
+          onClick={() => void aplicarFiltroZona(true, inputZona)}
+        >
           Buscar
         </button>
       </div>

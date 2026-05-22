@@ -1,6 +1,10 @@
 import { useLayoutEffect } from "react";
 import { usePlanificador } from "../context/PlanificadorContext.jsx";
-import { bootstrapPlanificador, reiniciarMapa } from "../js/app.js";
+import {
+  bootstrapPlanificador,
+  reiniciarMapa,
+  teardownPlanificador
+} from "../js/app.js";
 import MapView from "./MapView.jsx";
 import Sidebar from "./Sidebar.jsx";
 import TrafficControls from "./TrafficControls.jsx";
@@ -12,6 +16,7 @@ export default function PlanificadorApp() {
     const el = mapRef.current;
     if (!el) return;
     void bootstrapPlanificador(el);
+    return () => teardownPlanificador();
   }, [mapRef]);
 
   return (

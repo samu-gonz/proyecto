@@ -1199,6 +1199,11 @@ async function pintarIncidenciasDeRuta(mapa, data, apiKey = "") {
   }
 }
 
+/** Polilínea de carretera para bbox de incidencias (usado por tomtom-traffic). */
+export function puntosCarreteraDesdeDatos(data) {
+  return polylineCarreteraDesdeRuta(data);
+}
+
 export {
   calcularRutaTomTom,
   coordenadasValidas,
