@@ -1,0 +1,28 @@
+---
+description: Prioridad máxima — cálculo y pintado de ruta TomTom multiparada
+alwaysApply: true
+---
+
+# Prioridad máxima: la ruta
+
+En este proyecto la **ruta** (origen + paradas → TomTom → línea continua en mapa) es lo primero. Todo lo demás (React, estilos, refactors, panel tráfico, fecha futura) es secundario.
+
+## Al responder o cambiar código
+
+- No romper ni reemplazar el flujo: `invocarEnrutamientoTomTom` → `calcularRutaTomTom` → `procesarDatosTomTomMultiparadaApp` → `pintarRutaPrincipalMultiparadaEnMapa`.
+- Con **2+ paradas**, no usar `maxAlternatives` en la URL principal de multiparada.
+- Cambios mínimos en `app.js` / TomTom; la UI pasa por `planificador-ui-bridge.js` sin duplicar listeners.
+- Antes de refactors grandes, comprobar que multiparada, GPS y checkboxes siguen calculando.
+
+## Mensajes al usuario (app y asistente)
+
+- Cada mensaje debe decir **qué falta para la ruta** o **qué está pasando con la ruta** (calculando, error TomTom, falta origen/paradas).
+- No priorizar mensajes sobre React, arquitectura o tooling frente a cómo obtener la ruta en el mapa.
+- Errores: causa breve + paso concreto (confirmar GPS, marcar máquinas, revisar clave TomTom).
+- Usar constantes de `src/js/mensajes-ruta.js` para textos de UI; no inventar copias sueltas.
+
+## Prohibido sin petición explícita
+
+- Unificar o reescribir el motor de ruta “por limpieza”.
+- Añadir `maxAlternatives` en multiparada principal.
+- Segunda vía de cálculo que bypass `invocarEnrutamientoTomTom`.
