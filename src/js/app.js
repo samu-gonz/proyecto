@@ -15,6 +15,7 @@ import {
   enlazarControlesTraficoTomTom,
   initCapasTraficoTomTom
 } from "./tomtom-traffic.js";
+import * as planificadorUi from "./planificador-ui-bridge.js";
 
 let bootstrapSeq = 0;
 let listenersUiAdjuntos = false;
@@ -120,10 +121,7 @@ function limpiarEstadoRutaInterno() {
 }
 
 function limpiarContenedorResumen(mensajeHtml = "") {
-  const resumenDiv = document.getElementById("resumen");
-  if (resumenDiv) {
-    resumenDiv.innerHTML = mensajeHtml;
-  }
+  planificadorUi.uiSetResumenHtml(mensajeHtml);
 }
 
 function ocultarResumenRutaFlotante() {
@@ -144,12 +142,13 @@ function formatearDepartAtDesdeInput(valorInput) {
 }
 
 function leerDepartAtSeleccionadoDesdeUI() {
-  const input = document.getElementById(ID_SELECTOR_FECHA_FUTURA);
-  if (!input?.value) return null;
-  return formatearDepartAtDesdeInput(input.value);
+  const valor = planificadorUi.uiGetDepartAtInput();
+  if (!valor) return null;
+  return formatearDepartAtDesdeInput(valor);
 }
 
 function asegurarSelectorFechaFuturaEnSidebar() {
+  if (planificadorUi.isPlanificadorUiActive()) return;
   if (document.getElementById(ID_SELECTOR_FECHA_FUTURA)) return;
 
   const btnRuta = document.getElementById("btn-ruta");
@@ -196,7 +195,7 @@ function asegurarSelectorFechaFuturaEnSidebar() {
 
 /** 1. CAPTURA Y FORMATEO DE FECHA FUTURA (departAt sin codificar %3A). */
 function leerFechaFuturaDesdeUIApp() {
-  let fechaInput = document.getElementById(ID_SELECTOR_FECHA_FUTURA)?.value || "";
+  let fechaInput = planificadorUi.uiGetDepartAtInput() || "";
   if (!fechaInput && departAtSeleccionadoIsoApp) {
     fechaInput = departAtSeleccionadoIsoApp;
   }
@@ -504,6 +503,7 @@ async function restaurarEstadoDesdeLocalStorage() {
 }
 
 function initSelectOrigen() {
+  if (planificadorUi.isPlanificadorUiActive()) return;
   const select = document.getElementById("select-origen");
   const optgroup = document.createElement("optgroup");
   optgroup.label = "Empezar desde una máquina";
@@ -521,8 +521,7 @@ function initSelectOrigen() {
 }
 
 function marcarMaquinaEnLista(id, checked) {
-  const chk = document.getElementById(`maq-${id}`);
-  if (chk) chk.checked = checked;
+  planificadorUi.uiSetMaquinaChecked(id, checked);
 }
 
 /**
@@ -2184,6 +2183,9 @@ function filtrarMaquinas(texto) {
 }
 
 function obtenerSeleccionadosIds() {
+  if (planificadorUi.isPlanificadorUiActive()) {
+    return planificadorUi.uiGetSelectedMaquinaIds();
+  }
   const ids = [];
   maquinasVisibles.forEach((m) => {
     const chk = document.getElementById(`maq-${m.id}`);
