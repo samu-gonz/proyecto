@@ -1,11 +1,18 @@
 /**
  * Clave TomTom (Traffic Flow + Incidents).
- * Fuente única: también se lee desde .env como VITE_TOMTOM_API_KEY
+ * Fuente: .env como VITE_TOMTOM_API_KEY
  */
-const TOMTOM_API_KEY = "I1QN7ntpSqnErI9axpXW1qKCJhVeUROX";
+const TOMTOM_API_KEY =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_TOMTOM_API_KEY) ||
+  (import.meta.env?.DEV ? "I1QN7ntpSqnErI9axpXW1qKCJhVeUROX" : "") ||
+  "";
 
-window.TOMTOM_API_KEY = TOMTOM_API_KEY;
-
-function obtenerClaveTomTom() {
-  return window.TOMTOM_API_KEY || TOMTOM_API_KEY;
+if (TOMTOM_API_KEY) {
+  window.TOMTOM_API_KEY = TOMTOM_API_KEY;
 }
+
+export function obtenerClaveTomTom() {
+  return window.TOMTOM_API_KEY || TOMTOM_API_KEY || "";
+}
+
+window.obtenerClaveTomTom = obtenerClaveTomTom;

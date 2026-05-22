@@ -639,3 +639,5 @@ function enlazarControlesTraficoTomTom(traffic) {
     });
   });
 }
+
+export { initCapasTraficoTomTom, enlazarControlesTraficoTomTom };

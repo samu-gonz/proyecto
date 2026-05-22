@@ -881,7 +881,19 @@ async function calcularRutaTomTom(
     if (pintadoObsoleto(seqToken)) return null;
 
     let opcionesPintura = { ...opcionesPintado };
-    let pintado = pintarRutaDesdeDatos(mapa, data, opcionesPintura, seqToken);
+    let pintado = null;
+    if (opcionesPintado.omitirPintadoMapa) {
+      const resumenViaje = aplicarSummaryAlPanel(data);
+      if (!resumenViaje) {
+        limpiarLineasRuta(mapa);
+        resetearEtiquetasResumen();
+        console.error("TomTom: sin resumen de ruta.", data);
+        return null;
+      }
+      pintado = { capa: null, resumenViaje };
+    } else {
+      pintado = pintarRutaDesdeDatos(mapa, data, opcionesPintura, seqToken);
+    }
 
     if (!pintado) {
       limpiarLineasRuta(mapa);
@@ -927,7 +939,12 @@ async function calcularRutaTomTom(
 
       rutaEsquivada = true;
       opcionesPintura = { ...opcionesPintado, rutaEsquivada: true };
-      pintado = pintarRutaDesdeDatos(mapa, data, opcionesPintura, seqToken);
+      if (opcionesPintado.omitirPintadoMapa) {
+        const resumenViaje = aplicarSummaryAlPanel(data);
+        pintado = resumenViaje ? { capa: null, resumenViaje } : null;
+      } else {
+        pintado = pintarRutaDesdeDatos(mapa, data, opcionesPintura, seqToken);
+      }
 
       if (!pintado) {
         limpiarLineasRuta(mapa);
@@ -1182,6 +1199,20 @@ async function pintarIncidenciasDeRuta(mapa, data, apiKey = "") {
   }
 }
 
+export {
+  calcularRutaTomTom,
+  coordenadasValidas,
+  limpiarLineasRuta,
+  limpiarMarcadoresIncidencias,
+  limpiarRutaTomTom,
+  limpiarRoadblocksActivos,
+  normalizarPuntoRuta,
+  pintarIncidenciasDeRuta,
+  resumenDesdeSummary,
+  resetearEtiquetasResumen,
+  sincronizarEtiquetasResumen
+};
+
 if (typeof window !== "undefined") {
   window.calcularRutaTomTom = calcularRutaTomTom;
   window.limpiarLineasRuta = limpiarLineasRuta;
@@ -1191,4 +1222,8 @@ if (typeof window !== "undefined") {
   window.pintarIncidenciasDeRuta = pintarIncidenciasDeRuta;
   window.obtenerRoadblocksActivos = () => [...roadblocksActivos];
   window.resumenDesdeSummary = resumenDesdeSummary;
+  window.coordenadasValidas = coordenadasValidas;
+  window.normalizarPuntoRuta = normalizarPuntoRuta;
+  window.sincronizarEtiquetasResumen = sincronizarEtiquetasResumen;
+  window.resetearEtiquetasResumen = resetearEtiquetasResumen;
 }

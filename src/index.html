@@ -1,118 +1,12 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <title>Rutas máquinas expendedoras - Tenerife</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
-  <!-- Leaflet -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
-
-  <link rel="stylesheet" href="css/styles.css" />
-</head>
-<body>
-  <div id="app">
-    <div id="sidebar">
-      <h1>Planificador de ruta</h1>
-      <p><strong>Zona:</strong> Tenerife</p>
-
-      <h2>Punto de partida</h2>
-      <p class="small">
-        Elige tu ubicación GPS o una máquina como inicio de la ruta.
-      </p>
-      <label for="select-origen" class="label-campo">Inicio de ruta</label>
-      <select id="select-origen">
-        <option value="gps">Mi ubicación actual</option>
-      </select>
-      <button type="button" id="btn-confirmar-gps" class="btn-confirmar-gps">
-        Confirmar mi ubicación actual
-      </button>
-      <p id="geo-estado" class="small geo-estado">
-        La ruta se dibuja en el mapa. Elige origen y máquinas a visitar.
-      </p>
-      <div id="origen-info"></div>
-
-      <h2>Buscar por zona</h2>
-      <div id="busqueda-zona" class="busqueda-zona">
-        <input
-          type="search"
-          id="input-zona"
-          placeholder="Ej: Norte, Sur, La Laguna, Oeste..."
-          autocomplete="off"
-        />
-        <button type="button" id="btn-buscar">Buscar</button>
-      </div>
-      <p id="filtro-activo" class="small filtro-activo"></p>
-
-      <h2>Máquinas a visitar</h2>
-      <div id="lista-maquinas"></div>
-
-      <button id="btn-ruta">Calcular ruta óptima</button>
-
-      <h2>Resumen</h2>
-      <p class="resumen-stats">
-        <strong>Distancia:</strong> <span id="distancia-total">0 km</span>
-        · <strong>Tiempo total:</strong> <span id="tiempo-conduccion">0 min</span>
-      </p>
-      <div id="resumen">
-        <p>Selecciona máquinas para calcular la ruta automáticamente en el mapa.</p>
-      </div>
-    </div>
-
-    <div class="map-wrap">
-      <div id="map"></div>
-      <div id="ruta-stats-flotante" class="ruta-stats-flotante" hidden aria-live="polite">
-        Distancia: — km | Tiempo: — min
-      </div>
-      <button type="button" id="btn-reiniciar-mapa" class="btn-reiniciar-mapa" title="Quitar ruta, ubicación GPS y volver a la vista de Tenerife">
-        Reiniciar mapa
-      </button>
-      <div class="map-controls map-controls--traffic" id="traffic-controls">
-        <strong>Tráfico TomTom en vivo</strong>
-        <p class="small traffic-nota">
-          Incidencias solo en tu ruta calculada. Clic → Esquivar incidencia.
-        </p>
-        <label class="traffic-toggle">
-          <input type="checkbox" id="chk-trafico-flujo" />
-          Capa flujo (mapa)
-        </label>
-        <label class="traffic-toggle">
-          <input type="checkbox" id="chk-trafico-incidencias" checked />
-          Incidencias en la ruta
-        </label>
-        <div class="traffic-leyenda">
-          <span class="leyenda-item leyenda-item--fluido" data-capa="flujo" title="Clic: mostrar/ocultar flujo">Fluido</span>
-          <span class="leyenda-item leyenda-item--lento" data-capa="flujo" title="Clic: mostrar/ocultar flujo">Lento</span>
-          <span class="leyenda-item leyenda-item--congestion" data-capa="flujo" title="Clic: mostrar/ocultar flujo">Congestión</span>
-          <span class="leyenda-item leyenda-item--incidencia" data-capa="incidencias" title="Clic: mostrar/ocultar incidencias">Incidencias</span>
-        </div>
-      </div>
-      <p id="tomtom-aviso" class="tomtom-aviso" hidden>
-        Configura tu clave TomTom en <code>src/js/tomtom-config.js</code> o en
-        <code>.env</code> como <code>VITE_TOMTOM_API_KEY</code>.
-      </p>
-    </div>
-  </div>
-
-  <script src="js/tomtom-config.js"></script>
-  <script type="module">
-    const claveEnv = import.meta.env.VITE_TOMTOM_API_KEY;
-    if (claveEnv) {
-      window.TOMTOM_API_KEY = claveEnv;
-    }
-  </script>
-  <script src="js/tomtom-traffic.js"></script>
-  <script src="js/tomtom-routing.js"></script>
-  <script src="js/app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rutas máquinas expendedoras - Tenerife</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.jsx"></script>
+  </body>
 </html>

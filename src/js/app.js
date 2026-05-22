@@ -1,79 +1,23 @@
-// 62 máquinas repartidas por toda la isla (norte, sur, este, oeste y valle)
-const PUNTOS_ISLA = [
-  { nombre: "La Laguna Centro", zona: "La Laguna", lat: 28.4874, lng: -16.3159 },
-  { nombre: "La Laguna Campus", zona: "La Laguna", lat: 28.4827, lng: -16.3200 },
-  { nombre: "Santa Cruz Puerto", zona: "Santa Cruz", lat: 28.4631, lng: -16.2470 },
-  { nombre: "Candelaria Basílica", zona: "Candelaria", lat: 28.3540, lng: -16.3720 },
-  { nombre: "Adeje Centro", zona: "Sur", lat: 28.1227, lng: -16.7260 },
-  { nombre: "Los Cristianos", zona: "Sur", lat: 28.0496, lng: -16.7160 },
-  { nombre: "Plaza del Adelantado", zona: "La Laguna", lat: 28.4855, lng: -16.3142 },
-  { nombre: "San Benito", zona: "La Laguna", lat: 28.4910, lng: -16.3080 },
-  { nombre: "Guajara", zona: "La Laguna", lat: 28.4780, lng: -16.3280 },
-  { nombre: "Mesa Mota", zona: "La Laguna", lat: 28.4940, lng: -16.3250 },
-  { nombre: "Tegueste", zona: "La Laguna", lat: 28.5240, lng: -16.3390 },
-  { nombre: "Punta de Hidalgo", zona: "Norte", lat: 28.5710, lng: -16.3420 },
-  { nombre: "Tejina", zona: "Norte", lat: 28.5380, lng: -16.3610 },
-  { nombre: "García Sanabria", zona: "Santa Cruz", lat: 28.4680, lng: -16.2560 },
-  { nombre: "Mercado Nuestra Señora", zona: "Santa Cruz", lat: 28.4605, lng: -16.2495 },
-  { nombre: "Plaza España", zona: "Santa Cruz", lat: 28.4665, lng: -16.2488 },
-  { nombre: "Avenida Marítima", zona: "Santa Cruz", lat: 28.4580, lng: -16.2440 },
-  // En el macizo TomTom enruta >90 km por TF-12; pin en zona urbana TF-1
-  { nombre: "Anaga - Taganana", zona: "Norte", lat: 28.4780, lng: -16.2500 },
-  { nombre: "San Andrés", zona: "Santa Cruz", lat: 28.5010, lng: -16.1820 },
-  { nombre: "El Rosario", zona: "Santa Cruz", lat: 28.4510, lng: -16.3060 },
-  { nombre: "Tacoronte", zona: "Norte", lat: 28.4770, lng: -16.4100 },
-  { nombre: "El Sauzal", zona: "Norte", lat: 28.4785, lng: -16.4410 },
-  { nombre: "La Matanza", zona: "Norte", lat: 28.4650, lng: -16.4480 },
-  { nombre: "La Victoria", zona: "Norte", lat: 28.4520, lng: -16.4580 },
-  { nombre: "Santa Úrsula", zona: "Norte", lat: 28.4280, lng: -16.4920 },
-  { nombre: "La Orotava", zona: "Norte", lat: 28.3905, lng: -16.5230 },
-  { nombre: "Los Realejos", zona: "Norte", lat: 28.3870, lng: -16.5890 },
-  { nombre: "Puerto de la Cruz", zona: "Norte", lat: 28.4180, lng: -16.5490 },
-  { nombre: "Los Silos", zona: "Oeste", lat: 28.3580, lng: -16.8180 },
-  { nombre: "Garachico", zona: "Oeste", lat: 28.3725, lng: -16.7630 },
-  { nombre: "Icod de los Vinos", zona: "Oeste", lat: 28.3680, lng: -16.7130 },
-  { nombre: "Buenavista del Norte", zona: "Oeste", lat: 28.3790, lng: -16.8640 },
-  { nombre: "Santiago del Teide", zona: "Oeste", lat: 28.2950, lng: -16.8160 },
-  { nombre: "Tamaimo", zona: "Oeste", lat: 28.2200, lng: -16.8500 },
-  { nombre: "Guía de Isora", zona: "Oeste", lat: 28.2110, lng: -16.7790 },
-  { nombre: "Chío", zona: "Oeste", lat: 28.2650, lng: -16.7520 },
-  { nombre: "Playa San Juan", zona: "Oeste", lat: 28.2380, lng: -16.7380 },
-  { nombre: "Güímar", zona: "Este", lat: 28.3200, lng: -16.4150 },
-  { nombre: "Fasnia", zona: "Este", lat: 28.2980, lng: -16.4380 },
-  { nombre: "Arafo", zona: "Candelaria", lat: 28.3410, lng: -16.4210 },
-  { nombre: "Igueste", zona: "Candelaria", lat: 28.3620, lng: -16.3980 },
-  { nombre: "Playa Candelaria", zona: "Candelaria", lat: 28.3480, lng: -16.3810 },
-  { nombre: "El Socorro", zona: "Candelaria", lat: 28.3360, lng: -16.3650 },
-  { nombre: "Granadilla", zona: "Sur", lat: 28.0890, lng: -16.5770 },
-  { nombre: "El Médano", zona: "Sur", lat: 28.0450, lng: -16.5360 },
-  { nombre: "San Isidro", zona: "Sur", lat: 28.0780, lng: -16.5580 },
-  { nombre: "Las Galletas", zona: "Sur", lat: 28.0180, lng: -16.6510 },
-  { nombre: "Playa Las Américas", zona: "Sur", lat: 28.0620, lng: -16.7310 },
-  { nombre: "Costa Adeje", zona: "Sur", lat: 28.1080, lng: -16.7350 },
-  { nombre: "Fanabe", zona: "Sur", lat: 28.1150, lng: -16.7180 },
-  { nombre: "Arona", zona: "Sur", lat: 28.0990, lng: -16.6810 },
-  { nombre: "Vilaflor", zona: "Valle", lat: 28.1580, lng: -16.6350 },
-  { nombre: "San Miguel", zona: "Valle", lat: 28.0980, lng: -16.6170 },
-  { nombre: "La Esperanza", zona: "Valle", lat: 28.4450, lng: -16.4410 },
-  // Acceso TF-24 (Portillo): en el cráter TomTom enruta ~80 km por vías lentas del parque
-  { nombre: "Las Cañadas del Teide", zona: "Valle", lat: 28.3508, lng: -16.5197 },
-  { nombre: "Arico", zona: "Este", lat: 28.1720, lng: -16.4780 },
-  { nombre: "Porís de Abona", zona: "Sur", lat: 28.1350, lng: -16.5120 },
-  { nombre: "Callao Salvaje", zona: "Sur", lat: 28.1420, lng: -16.7580 },
-  { nombre: "Puerto Colón", zona: "Sur", lat: 28.0780, lng: -16.7420 },
-  { nombre: "Playa Paraíso", zona: "Sur", lat: 28.1280, lng: -16.7710 },
-  { nombre: "Valle San Lorenzo", zona: "Sur", lat: 28.1320, lng: -16.6980 },
-  { nombre: "Chayofa", zona: "Sur", lat: 28.0880, lng: -16.7050 }
-];
+import { MAQUINAS } from "../data/maquinas.js";
+import { obtenerClaveTomTom } from "./tomtom-config.js";
+import {
+  calcularRutaTomTom,
+  coordenadasValidas,
+  limpiarLineasRuta,
+  limpiarMarcadoresIncidencias,
+  limpiarRutaTomTom,
+  normalizarPuntoRuta,
+  resumenDesdeSummary,
+  resetearEtiquetasResumen,
+  sincronizarEtiquetasResumen
+} from "./tomtom-routing.js";
+import {
+  enlazarControlesTraficoTomTom,
+  initCapasTraficoTomTom
+} from "./tomtom-traffic.js";
 
-const MAQUINAS = PUNTOS_ISLA.map((punto, index) => ({
-  id: index + 1,
-  nombre: `Máquina ${punto.nombre}`,
-  zona: punto.zona,
-  lat: punto.lat,
-  lng: punto.lng,
-  tiempoServicioMin: 10 + (index % 4) * 5
-}));
+let bootstrapSeq = 0;
+let listenersUiAdjuntos = false;
 
 let map;
 let capasTraficoTomTom = null;
@@ -93,6 +37,8 @@ let restaurandoSesion = false;
 let recalcularRutaTimer = null;
 /** Evita aplicar respuestas TomTom obsoletas si el usuario cambió paradas rápido. */
 let calcularRutaSeq = 0;
+/** Petición espejo origen→destino final (ruta secundaria de respaldo). */
+let seqPeticionSecundariaRespaldoApp = 0;
 /** Paradas elegidas desde el menú lateral (orden de clic). */
 let misParadasSeleccionadas = [];
 
@@ -111,6 +57,9 @@ const COLORES_TRAMO_TRAFICO_APP = {
 };
 
 const ID_SELECTOR_FECHA_FUTURA = "selector-fecha-futura";
+
+/** Rutas alternativas TomTom (extensiones post-ruta; no afecta el bucle de legs). */
+const ACTIVAR_RUTAS_ALTERNATIVAS_TOMTOM_APP = true;
 
 const STORAGE_KEY = "planificador-ruta-tenerife-v1";
 
@@ -288,17 +237,27 @@ function construirUrlCalculateRouteTomTomApp(points, apiKey, opciones = {}) {
     opciones.fechaInput ?? leerFechaFuturaDesdeUIApp()
   );
 
+  // maxAlternatives rompe la geometría multiparada (solo pinta el 1.er leg).
+  const numParadas = Number(opciones.numParadas) || 0;
+  const paramAlternativas =
+    ACTIVAR_RUTAS_ALTERNATIVAS_TOMTOM_APP && numParadas <= 1
+      ? "&maxAlternatives=2"
+      : "";
+
   if (fechaFinal) {
     urlBase +=
       "?" +
       params.toString() +
-      "&traffic=true&computeTravelTimeFor=all&maxAlternatives=2&departAt=" +
+      "&traffic=true&computeTravelTimeFor=all" +
+      paramAlternativas +
+      "&departAt=" +
       fechaFinal;
   } else {
     urlBase +=
       "?" +
       params.toString() +
-      "&traffic=true&departAt=now&maxAlternatives=2";
+      "&traffic=true&departAt=now" +
+      paramAlternativas;
   }
 
   return urlBase;
@@ -332,9 +291,14 @@ function parchearFetchTomTomConDepartAt() {
           ? obtenerClaveTomTom()
           : window.TOMTOM_API_KEY || "");
 
+      const numWaypoints = points.split(":").filter(Boolean).length;
+      const numParadas = Math.max(0, numWaypoints - 1);
+
       const urlTomTom = construirUrlCalculateRouteTomTomApp(points, apiKey, {
         fechaInput: leerFechaFuturaDesdeUIApp(),
-        computeBestOrder: urlParseada.searchParams.get("computeBestOrder") === "true"
+        computeBestOrder:
+          urlParseada.searchParams.get("computeBestOrder") === "true",
+        numParadas
       });
 
       console.log("🚀 URL Enviada a TomTom:", urlTomTom);
@@ -794,13 +758,20 @@ function limpiarCapasRutaRegistroApp(mapa) {
   });
   window.capasRuta = [];
 
-  if (!window.capasRutaAlternativas) window.capasRutaAlternativas = [];
-  window.capasRutaAlternativas.forEach((capa) => {
+  if (!window.capasRuta) window.capasRuta = [];
+  window.capasRuta.forEach((capa) => {
     if (mapa && capa && mapa.hasLayer(capa)) {
       mapa.removeLayer(capa);
     }
   });
-  window.capasRutaAlternativas = [];
+  window.capasRuta = [];
+
+  const panelAtasco = document.getElementById("panel-alerta-atasco-pasivo");
+  if (panelAtasco) panelAtasco.hidden = true;
+
+  limpiarRutasSecundariasRespaldoEnMapa(mapa);
+  const bannerIncidencias = document.getElementById("alerta-incidencias-ruta");
+  if (bannerIncidencias) bannerIncidencias.remove();
 }
 
 function registrarCapasGrupoEnWindowCapasRuta(grupo) {
@@ -840,6 +811,47 @@ function rutaPrincipalTomTomApp(data) {
   return data?.routes?.[0] ?? null;
 }
 
+/**
+ * Con maxAlternatives, routes[0] a veces NO es el viaje multiparada completo.
+ * Elige la ruta con más legs/puntos y la pone primero.
+ */
+function puntuacionRutaMultiparadaApp(ruta, paradasEsperadas = 0) {
+  const legs = ruta?.legs?.length || 0;
+  const puntos = polylineCompletaRutaPrincipalApp(ruta).length;
+  let score = puntos + legs * 500;
+  if (paradasEsperadas > 0 && legs >= paradasEsperadas) {
+    score += 1_000_000;
+  }
+  return score;
+}
+
+function datosTomTomRutaPrincipalPrimeroApp(data, paradasEsperadas = 0) {
+  const rutas = data?.routes;
+  if (!rutas?.length) return data;
+  if (rutas.length === 1) return data;
+
+  let idxMejor = 0;
+  let mejorScore = -1;
+  rutas.forEach((ruta, idx) => {
+    const score = puntuacionRutaMultiparadaApp(ruta, paradasEsperadas);
+    if (score > mejorScore) {
+      mejorScore = score;
+      idxMejor = idx;
+    }
+  });
+
+  if (idxMejor === 0) return data;
+
+  const principal = rutas[idxMejor];
+  const otras = rutas.filter((_, idx) => idx !== idxMejor);
+  console.warn("TomTom: reordenando routes — la multiparada completa no estaba en [0]", {
+    indiceElegido: idxMejor,
+    legsElegidos: principal?.legs?.length ?? 0,
+    puntosElegidos: polylineCompletaRutaPrincipalApp(principal).length
+  });
+  return { ...data, routes: [principal, ...otras] };
+}
+
 function puntosLegComoPolylineApp(leg) {
   return (leg?.points || [])
     .map((p) => [
@@ -860,6 +872,122 @@ function polylineConcatenandoLegsApp(rutaPrincipal) {
     });
   });
   return puntos;
+}
+
+function polylineDesdePointsRutaTomTomApp(points) {
+  return (points || [])
+    .map((p) => [
+      Number(p.latitude ?? p.lat),
+      Number(p.longitude ?? p.lon ?? p.lng)
+    ])
+    .filter((pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
+}
+
+function contarLegsConGeometriaApp(legs) {
+  return (legs || []).filter((leg) => puntosLegComoPolylineApp(leg).length >= 2).length;
+}
+
+/**
+ * Con maxAlternatives TomTom a veces rellena routes[0].points completo
+ * pero deja legs[1..n] sin geometría → solo se ve el primer tramo.
+ */
+function multiparadaLegsIncompletosApp(rutaPrincipal) {
+  const legs = rutaPrincipal?.legs || [];
+  if (!legs.length) return true;
+
+  const legsConGeo = contarLegsConGeometriaApp(legs);
+  if (legsConGeo === 0) return true;
+  if (legsConGeo < legs.length) return true;
+
+  const polyLegs = polylineConcatenandoLegsApp(rutaPrincipal);
+  const polyRuta = polylineDesdePointsRutaTomTomApp(rutaPrincipal.points);
+  if (polyRuta.length >= 2 && polyLegs.length < polyRuta.length * 0.85) {
+    return true;
+  }
+
+  return false;
+}
+
+function polylineCompletaRutaPrincipalApp(rutaPrincipal) {
+  const polyLegs = polylineConcatenandoLegsApp(rutaPrincipal);
+  const polyRuta = polylineDesdePointsRutaTomTomApp(rutaPrincipal?.points);
+  if (polyRuta.length < 2) return polyLegs;
+  if (polyLegs.length < 2) return polyRuta;
+  return polyRuta.length >= polyLegs.length ? polyRuta : polyLegs;
+}
+
+/**
+ * Polyline + sections con índices coherentes (evita todo verde por desfase legs/points).
+ */
+function contextoPintadoTraficoRutaPrincipalApp(rutaPrincipal) {
+  const polyRuta = polylineDesdePointsRutaTomTomApp(rutaPrincipal?.points);
+  const seccionesRuta = [...(rutaPrincipal?.sections || [])].filter(
+    esSeccionPintableEnMapaApp
+  );
+  const seccionesLegs = seccionesGlobalesRutaPrincipalApp(rutaPrincipal);
+  const traficoEnRuta = seccionesRuta.some(
+    (s) => (s.sectionType || "").toUpperCase() === "TRAFFIC"
+  );
+  const traficoEnLegs = seccionesLegs.some(
+    (s) => (s.sectionType || "").toUpperCase() === "TRAFFIC"
+  );
+
+  if (polyRuta.length >= 2 && (traficoEnRuta || !traficoEnLegs)) {
+    return {
+      polyline: polyRuta,
+      secciones: traficoEnRuta ? seccionesRuta : seccionesLegs
+    };
+  }
+
+  const polyLegs = polylineConcatenandoLegsApp(rutaPrincipal);
+  return { polyline: polyLegs, secciones: seccionesLegs };
+}
+
+function puntosTramoSeccionEnPolylineApp(seccion, polyline) {
+  if (!polyline?.length) return [];
+
+  const inicio = Math.max(0, Number(seccion.startPointIndex) || 0);
+  const fin = Math.min(
+    polyline.length - 1,
+    Number(seccion.endPointIndex) ?? inicio
+  );
+  if (fin < inicio) return [];
+
+  let tramo = polyline.slice(inicio, fin + 1);
+  if (tramo.length < 2 && fin + 1 < polyline.length) {
+    tramo = polyline.slice(inicio, fin + 2);
+  }
+  return tramo.length >= 2 ? tramo : [];
+}
+
+/** Secciones globales: route.sections + leg.sections con offset acumulado. */
+function seccionesGlobalesRutaPrincipalApp(rutaPrincipal) {
+  const vistos = new Set();
+  const lista = [];
+
+  const agregar = (seccion, offset) => {
+    const clave = `${offset}:${seccion.startPointIndex}:${seccion.endPointIndex}:${seccion.sectionType}`;
+    if (vistos.has(clave)) return;
+    vistos.add(clave);
+    lista.push({
+      ...seccion,
+      startPointIndex: (Number(seccion.startPointIndex) || 0) + offset,
+      endPointIndex: (Number(seccion.endPointIndex) || 0) + offset
+    });
+  };
+
+  [...(rutaPrincipal?.sections || [])].forEach((s) => agregar(s, 0));
+
+  let offset = 0;
+  (rutaPrincipal?.legs || []).forEach((leg) => {
+    const pts = puntosLegComoPolylineApp(leg);
+    [...(leg.sections || [])].forEach((s) => agregar(s, offset));
+    offset += Math.max(0, pts.length - 1);
+  });
+
+  return lista
+    .filter((s) => esSeccionPintableEnMapaApp(s))
+    .sort(ordenarSeccionesParaPintadoApp);
 }
 
 /**
@@ -883,19 +1011,186 @@ function puntosTramoSeccionEnLegApp(leg, seccion) {
   return tramo.length >= 2 ? tramo : [];
 }
 
-/** Misma regla para pintar el mapa y para el contador del menú. */
+const CATEGORIAS_TRAFICO_ROJO_APP = new Set([
+  "JAM",
+  "HEAVY_JAM",
+  "STATIONARY",
+  "ROAD_CLOSURE"
+]);
+
+const CATEGORIAS_TRAFICO_AMARILLO_APP = new Set([
+  "SLOW",
+  "QUEUE",
+  "ROAD_WORK",
+  "OTHER"
+]);
+
+/**
+ * Misma regla para mapa y menú. TomTom en predicción (p. ej. viernes 16:00) suele
+ * traer effectiveSpeedInKmh / simpleCategory sin delayInSeconds en cada tramo.
+ */
 function clasificarTramoTraficoApp(seccion) {
   const retraso = Number(seccion.delayInSeconds) || 0;
-  const magnitude = Number(seccion.magnitudeOfDelay) || 0;
+  const magnitude =
+    Number(seccion.magnitudeOfDelay ?? seccion.magnitudOfDelay) || 0;
+  const categoria = String(seccion.simpleCategory || "").toUpperCase();
+  const velEfectiva = Number(seccion.effectiveSpeedInKmh);
 
-  if (magnitude >= 3 || retraso > 60) return "rojo";
-  if (
-    (magnitude >= 1 && magnitude <= 2) ||
-    (retraso > 0 && retraso <= 60)
-  ) {
-    return "amarillo";
+  if (CATEGORIAS_TRAFICO_ROJO_APP.has(categoria)) return "rojo";
+  if (CATEGORIAS_TRAFICO_AMARILLO_APP.has(categoria)) return "amarillo";
+
+  if (magnitude >= 3 || retraso > 90) return "rojo";
+  if (magnitude >= 2 || retraso > 30) return "amarillo";
+  if (magnitude >= 1 || retraso > 0) return "amarillo";
+
+  if (Number.isFinite(velEfectiva)) {
+    if (velEfectiva < 25) return "rojo";
+    if (velEfectiva < 50) return "amarillo";
   }
+
+  const viaje = Number(seccion.travelTimeInSeconds) || 0;
+  const sinTrafico = Number(seccion.noTrafficTravelTimeInSeconds) || 0;
+  if (sinTrafico > 0 && viaje > sinTrafico) {
+    const retrasoTramo = viaje - sinTrafico;
+    if (retrasoTramo > 90) return "rojo";
+    if (retrasoTramo > 20) return "amarillo";
+  }
+
   return "verde";
+}
+
+/** Misma regla que el tramo sintético pintado en mapa (resumen TomTom). */
+function nivelTraficoSinteticoResumenRutaApp(rutaPrincipal) {
+  const summary = rutaPrincipal?.summary;
+  if (!summary) return null;
+
+  const delay = Number(summary.trafficDelayInSeconds) || 0;
+  const trafficLen = Number(summary.trafficLengthInMeters) || 0;
+  const totalLen = Number(summary.lengthInMeters) || 0;
+  const sinTrafico = Number(summary.noTrafficTravelTimeInSeconds) || 0;
+  const viaje = Number(summary.travelTimeInSeconds) || 0;
+
+  if (
+    delay < 15 &&
+    trafficLen < 80 &&
+    !(sinTrafico > 0 && viaje > sinTrafico + 30)
+  ) {
+    return null;
+  }
+
+  let fraccion = 0.3;
+  if (totalLen > 0 && trafficLen > 0) {
+    fraccion = Math.min(0.75, trafficLen / totalLen);
+  } else if (sinTrafico > 0 && viaje > sinTrafico) {
+    fraccion = Math.min(0.65, (viaje - sinTrafico) / viaje);
+  } else if (viaje > 0 && delay > 0) {
+    fraccion = Math.min(0.55, delay / viaje);
+  }
+
+  return delay > 300 || fraccion > 0.45 ? "rojo" : "amarillo";
+}
+
+function pintarTraficoDesdeResumenRutaApp(
+  grupoLineasRuta,
+  rutaPrincipal,
+  polyline,
+  opciones = {}
+) {
+  if (!polyline?.length || polyline.length < 2) return false;
+
+  const nivel = nivelTraficoSinteticoResumenRutaApp(rutaPrincipal);
+  if (!nivel) return false;
+
+  const n = polyline.length;
+  const summary = rutaPrincipal.summary;
+  const delay = Number(summary.trafficDelayInSeconds) || 0;
+  const trafficLen = Number(summary.trafficLengthInMeters) || 0;
+  const totalLen = Number(summary.lengthInMeters) || 0;
+  const sinTrafico = Number(summary.noTrafficTravelTimeInSeconds) || 0;
+  const viaje = Number(summary.travelTimeInSeconds) || 0;
+
+  let fraccion = 0.3;
+  if (totalLen > 0 && trafficLen > 0) {
+    fraccion = Math.min(0.75, trafficLen / totalLen);
+  } else if (sinTrafico > 0 && viaje > sinTrafico) {
+    fraccion = Math.min(0.65, (viaje - sinTrafico) / viaje);
+  } else if (viaje > 0 && delay > 0) {
+    fraccion = Math.min(0.55, delay / viaje);
+  }
+
+  const largoTramo = Math.max(2, Math.round(n * fraccion));
+  const inicio = Math.max(0, Math.floor((n - largoTramo) * 0.3));
+  const tramo = polyline.slice(inicio, inicio + largoTramo);
+
+  agregarPolylineAlGrupoRuta(
+    grupoLineasRuta,
+    tramo,
+    COLORES_TRAMO_TRAFICO_APP[nivel],
+    opciones
+  );
+  return true;
+}
+
+function incrementarConteoTramoTraficoApp(conteo, seccion) {
+  const nivel = clasificarTramoTraficoApp(seccion);
+  if (nivel === "rojo") conteo.rojo += 1;
+  else if (nivel === "amarillo") conteo.amarillo += 1;
+  else conteo.verde += 1;
+}
+
+/** Misma lógica que pintarRutaPrincipalFallbackPolylineApp (lo que ves en el mapa). */
+function contarTramosTraficoGlobalDesdeRutaApp(rutaPrincipal) {
+  const conteo = { rojo: 0, amarillo: 0, verde: 0 };
+  const { polyline, secciones } = contextoPintadoTraficoRutaPrincipalApp(rutaPrincipal);
+
+  if (polyline.length < 2) return conteo;
+
+  if (!secciones.length) {
+    const nivel = nivelTraficoSinteticoResumenRutaApp(rutaPrincipal);
+    if (nivel === "rojo") conteo.rojo = 1;
+    else if (nivel === "amarillo") conteo.amarillo = 1;
+    else conteo.verde = 1;
+    return conteo;
+  }
+
+  const indicesCubiertos = indicesCubiertosPorSeccionesApp(
+    secciones,
+    polyline.length
+  );
+  let tramosNoVerdes = 0;
+
+  let i = 0;
+  while (i < polyline.length) {
+    while (i < polyline.length && indicesCubiertos.has(i)) i++;
+    const inicio = i;
+    while (i < polyline.length && !indicesCubiertos.has(i)) i++;
+    if (i > inicio) conteo.verde += 1;
+  }
+
+  secciones.forEach((seccion) => {
+    const tipo = (seccion.sectionType || "").toUpperCase();
+    if (tipo !== "TRAFFIC" && tipo !== "MOTORWAY") return;
+
+    const puntosTramo = puntosTramoSeccionEnPolylineApp(seccion, polyline);
+    if (puntosTramo.length < 2) {
+      if (tipo === "TRAFFIC") {
+        incrementarConteoTramoTraficoApp(conteo, seccion);
+        if (clasificarTramoTraficoApp(seccion) !== "verde") tramosNoVerdes += 1;
+      }
+      return;
+    }
+
+    incrementarConteoTramoTraficoApp(conteo, seccion);
+    if (clasificarTramoTraficoApp(seccion) !== "verde") tramosNoVerdes += 1;
+  });
+
+  if (tramosNoVerdes === 0) {
+    const nivel = nivelTraficoSinteticoResumenRutaApp(rutaPrincipal);
+    if (nivel === "rojo") conteo.rojo += 1;
+    else if (nivel === "amarillo") conteo.amarillo += 1;
+  }
+
+  return conteo;
 }
 
 function colorTramoTraficoApp(seccion) {
@@ -1001,9 +1296,75 @@ function pintarTraficoLegMultiparada(grupoLineasRuta, leg, opciones = {}) {
   return true;
 }
 
+/** Fallback: polyline alineada con sections (índices TomTom coherentes). */
+function pintarRutaPrincipalFallbackPolylineApp(grupoLineasRuta, rutaPrincipal, opciones = {}) {
+  const { polyline, secciones } = contextoPintadoTraficoRutaPrincipalApp(rutaPrincipal);
+  if (polyline.length < 2) return false;
+
+  if (!secciones.length) {
+    agregarPolylineAlGrupoRuta(
+      grupoLineasRuta,
+      polyline,
+      COLORES_TRAMO_TRAFICO_APP.verde,
+      opciones
+    );
+    return pintarTraficoDesdeResumenRutaApp(
+      grupoLineasRuta,
+      rutaPrincipal,
+      polyline,
+      opciones
+    );
+  }
+
+  const indicesCubiertos = indicesCubiertosPorSeccionesApp(
+    secciones,
+    polyline.length
+  );
+  pintarHuecosPolylineEnGrupo(
+    grupoLineasRuta,
+    polyline,
+    indicesCubiertos,
+    COLORES_TRAMO_TRAFICO_APP.verde,
+    opciones
+  );
+
+  let tramosTraficoColoreados = 0;
+  secciones.forEach((seccion) => {
+    const puntosTramo = puntosTramoSeccionEnPolylineApp(seccion, polyline);
+    if (puntosTramo.length < 2) return;
+    const nivel = clasificarTramoTraficoApp(seccion);
+    if ((seccion.sectionType || "").toUpperCase() === "TRAFFIC" && nivel !== "verde") {
+      tramosTraficoColoreados += 1;
+    }
+    agregarPolylineAlGrupoRuta(
+      grupoLineasRuta,
+      puntosTramo,
+      colorTramoTraficoApp(seccion),
+      opciones
+    );
+  });
+
+  if (tramosTraficoColoreados === 0) {
+    pintarTraficoDesdeResumenRutaApp(
+      grupoLineasRuta,
+      rutaPrincipal,
+      polyline,
+      opciones
+    );
+  }
+
+  return true;
+}
+
+/** Multiparada: un solo trazo continuo (evita cortes entre legs). */
+function usarPintadoContinuoMultiparadaApp(rutaPrincipal) {
+  const legs = rutaPrincipal?.legs || [];
+  return legs.length >= 2 || multiparadaLegsIncompletosApp(rutaPrincipal);
+}
+
 /**
- * Pinta data.routes[0] recorriendo todos sus legs (multiparada).
- * Devuelve el grupo Leaflet o null si no hay geometría usable.
+ * Pinta data.routes[0]. Con 2+ paradas usa polyline global continua;
+ * con 1 parada mantiene pintado por leg.
  */
 function pintarRutaPrincipalMultiparadaEnMapa(mapa, data, opciones = {}) {
   limpiarGrupoLineasRutaApp(mapa);
@@ -1011,29 +1372,57 @@ function pintarRutaPrincipalMultiparadaEnMapa(mapa, data, opciones = {}) {
     limpiarLineasRuta(mapa);
   }
 
-  const rutaPrincipal = rutaPrincipalTomTomApp(data);
-  const legs = rutaPrincipal?.legs || [];
-  if (!legs.length) {
-    console.warn("TomTom: routes[0] sin legs (multiparada)");
+  const dataOrdenado = datosTomTomRutaPrincipalPrimeroApp(
+    data,
+    opciones.paradasEsperadas || 0
+  );
+  const rutaPrincipal = rutaPrincipalTomTomApp(dataOrdenado);
+  if (!rutaPrincipal) return null;
+
+  const legs = rutaPrincipal.legs || [];
+  const polyCompleta = polylineCompletaRutaPrincipalApp(rutaPrincipal);
+
+  if (polyCompleta.length < 2 && contarLegsConGeometriaApp(legs) === 0) {
+    console.warn("TomTom: sin geometría en routes[0]", {
+      legs: legs.length,
+      puntosRuta: rutaPrincipal.points?.length ?? 0
+    });
     return null;
   }
 
   const grupoLineasRuta = L.featureGroup().addTo(mapa);
   grupoLineasRutaApp = grupoLineasRuta;
 
-  if (opciones.rutaEsquivada) {
-    const contorno = polylineConcatenandoLegsApp(rutaPrincipal);
-    if (contorno.length >= 2) {
-      grupoLineasRuta.addLayer(
-        L.polyline(contorno, {
-          color: "#ff00aa",
-          weight: 10,
-          opacity: 0.35,
-          lineJoin: "round",
-          lineCap: "round"
-        })
-      );
-    }
+  if (opciones.rutaEsquivada && polyCompleta.length >= 2) {
+    grupoLineasRuta.addLayer(
+      L.polyline(polyCompleta, {
+        color: "#ff00aa",
+        weight: 10,
+        opacity: 0.35,
+        lineJoin: "round",
+        lineCap: "round"
+      })
+    );
+  }
+
+  if (usarPintadoContinuoMultiparadaApp(rutaPrincipal) && polyCompleta.length >= 2) {
+    const ctx = contextoPintadoTraficoRutaPrincipalApp(rutaPrincipal);
+    const traficoSecs = ctx.secciones.filter(
+      (s) => (s.sectionType || "").toUpperCase() === "TRAFFIC"
+    ).length;
+    console.log("TomTom: pintado continuo multiparada", {
+      legs: legs.length,
+      puntosPolyline: ctx.polyline.length,
+      seccionesTrafico: traficoSecs,
+      retrasoSeg: rutaPrincipal.summary?.trafficDelayInSeconds ?? 0,
+      metrosTrafico: rutaPrincipal.summary?.trafficLengthInMeters ?? 0
+    });
+    pintarRutaPrincipalFallbackPolylineApp(
+      grupoLineasRuta,
+      rutaPrincipal,
+      opciones
+    );
+    return grupoLineasRuta.getLayers().length > 0 ? grupoLineasRuta : null;
   }
 
   let legsPintados = 0;
@@ -1043,12 +1432,12 @@ function pintarRutaPrincipalMultiparadaEnMapa(mapa, data, opciones = {}) {
     }
   });
 
-  if (legsPintados === 0) {
-    limpiarGrupoLineasRutaApp(mapa);
-    console.warn("TomTom: ningún leg con geometría pintable", {
-      legsTotales: legs.length
-    });
-    return null;
+  if (legsPintados === 0 && polyCompleta.length >= 2) {
+    pintarRutaPrincipalFallbackPolylineApp(
+      grupoLineasRuta,
+      rutaPrincipal,
+      opciones
+    );
   }
 
   return grupoLineasRuta.getLayers().length > 0 ? grupoLineasRuta : null;
@@ -1057,10 +1446,10 @@ function pintarRutaPrincipalMultiparadaEnMapa(mapa, data, opciones = {}) {
 /**
  * SEGUNDO PLANO AISLADO: solo routes[1..n], sin tocar routes[0] ni sus legs.
  */
-function pintarRutasAlternativasSegundoPlano(mapa, data) {
-  if (!mapa || !data?.routes || data.routes.length <= 1) return;
+function pintarRutasAlternativasSegundoPlano(mapaLeaflet, data) {
+  if (!mapaLeaflet || !data?.routes || data.routes.length <= 1) return;
 
-  if (!window.capasRutaAlternativas) window.capasRutaAlternativas = [];
+  if (!window.capasRuta) window.capasRuta = [];
 
   data.routes.slice(1).forEach((rutaAlt) => {
     const todosLosPuntosAlt = [];
@@ -1080,12 +1469,26 @@ function pintarRutasAlternativasSegundoPlano(mapa, data) {
       color: "#9E9E9E",
       weight: 3,
       opacity: 0.6,
-      dashArray: "5, 10",
-      lineJoin: "round",
-      lineCap: "round"
-    }).addTo(mapa);
+      dashArray: "5, 10"
+    }).addTo(mapaLeaflet);
 
-    window.capasRutaAlternativas.push(lineaAlt);
+    lineaAlt._esRutaAlternativaTomTom = true;
+
+    lineaAlt.on("click", function () {
+      window.capasRuta.forEach((capa) => {
+        if (
+          capa instanceof L.Polyline &&
+          capa._esRutaAlternativaTomTom &&
+          capa.options.color === "#0056b3"
+        ) {
+          capa.setStyle({ color: "#9E9E9E", weight: 3, dashArray: "5, 10" });
+        }
+      });
+      lineaAlt.setStyle({ color: "#0056b3", weight: 5, dashArray: null });
+      console.log("Ruta secundaria seleccionada por el usuario.");
+    });
+
+    window.capasRuta.push(lineaAlt);
   });
 }
 
@@ -1094,34 +1497,62 @@ function pintarRutaTraficoFragmentadaEnMapa(mapa, data, opciones = {}) {
   return pintarRutaPrincipalMultiparadaEnMapa(mapa, data, opciones);
 }
 
-/** Contador #contador-trafico-personalizado: todas las sections de todos los legs de routes[0]. */
+/** Contador #contador-trafico-personalizado: alineado con pintado continuo multiparada. */
 function contarTramosTraficoDesdeDatos(data) {
-  let rojos = 0;
-  let amarillos = 0;
-  let verdes = 0;
-
   const rutaPrincipal = rutaPrincipalTomTomApp(data);
-  if (!rutaPrincipal?.legs?.length) {
+  if (!rutaPrincipal) {
     return { rojo: 0, amarillo: 0, verde: 0 };
   }
 
-  rutaPrincipal.legs.forEach((leg) => {
+  if (usarPintadoContinuoMultiparadaApp(rutaPrincipal)) {
+    return contarTramosTraficoGlobalDesdeRutaApp(rutaPrincipal);
+  }
+
+  const conteo = { rojo: 0, amarillo: 0, verde: 0 };
+
+  let tramosNoVerdes = 0;
+  (rutaPrincipal.legs || []).forEach((leg) => {
     [...(leg.sections || [])]
       .filter((s) => esSeccionPintableEnMapaApp(s))
       .forEach((seccion) => {
-        if (puntosTramoSeccionEnLegApp(leg, seccion).length < 2) return;
-        const nivel = clasificarTramoTraficoApp(seccion);
-        if (nivel === "rojo") rojos++;
-        else if (nivel === "amarillo") amarillos++;
-        else verdes++;
+        const puntosTramo = puntosTramoSeccionEnLegApp(leg, seccion);
+        const tipo = (seccion.sectionType || "").toUpperCase();
+        if (puntosTramo.length < 2) {
+          if (tipo === "TRAFFIC") {
+            incrementarConteoTramoTraficoApp(conteo, seccion);
+            if (clasificarTramoTraficoApp(seccion) !== "verde") tramosNoVerdes += 1;
+          }
+          return;
+        }
+        incrementarConteoTramoTraficoApp(conteo, seccion);
+        if (clasificarTramoTraficoApp(seccion) !== "verde") tramosNoVerdes += 1;
       });
   });
 
-  return { rojo: rojos, amarillo: amarillos, verde: verdes };
+  if (tramosNoVerdes === 0) {
+    const nivel = nivelTraficoSinteticoResumenRutaApp(rutaPrincipal);
+    if (nivel === "rojo") conteo.rojo += 1;
+    else if (nivel === "amarillo") conteo.amarillo += 1;
+  }
+
+  const total = conteo.rojo + conteo.amarillo + conteo.verde;
+  if (total > 0) return conteo;
+
+  if (multiparadaLegsIncompletosApp(rutaPrincipal)) {
+    return contarTramosTraficoGlobalDesdeRutaApp(rutaPrincipal);
+  }
+
+  return contarTramosTraficoGlobalDesdeRutaApp(rutaPrincipal);
 }
 
 function actualizarTraficoMenuDesdeDatos(data) {
-  actualizarPanelTraficoMenuLateral(contarTramosTraficoDesdeDatos(data));
+  const rutaPrincipal = rutaPrincipalTomTomApp(data);
+  const retrasoGlobal =
+    Number(rutaPrincipal?.summary?.trafficDelayInSeconds) || 0;
+  actualizarPanelTraficoMenuLateral(
+    contarTramosTraficoDesdeDatos(data),
+    retrasoGlobal
+  );
 }
 
 /**
@@ -1133,19 +1564,44 @@ function procesarDatosTomTomMultiparadaApp(mapa, data, opciones = {}) {
 
   limpiarCapasRutaRegistroApp(mapa);
 
+  const dataOrdenado = datosTomTomRutaPrincipalPrimeroApp(
+    data,
+    opciones.paradasEsperadas || 0
+  );
+
   // ==============================================================
   // PRIORIDAD MÁXIMA: RUTA PRINCIPAL MULTIPARADA (data.routes[0])
   // ==============================================================
-  const capaPrincipal = pintarRutaPrincipalMultiparadaEnMapa(mapa, data, opciones);
+  const capaPrincipal = pintarRutaPrincipalMultiparadaEnMapa(
+    mapa,
+    dataOrdenado,
+    opciones
+  );
   if (!capaPrincipal) return null;
 
   registrarCapasGrupoEnWindowCapasRuta(capaPrincipal);
-  actualizarTraficoMenuDesdeDatos(data);
+  actualizarTraficoMenuDesdeDatos(dataOrdenado);
 
-  // ==============================================================
-  // SEGUNDO PLANO AISLADO: RUTAS ALTERNATIVAS (data.routes.slice(1))
-  // ==============================================================
-  pintarRutasAlternativasSegundoPlano(mapa, data);
+  const rutaPrincipal = dataOrdenado.routes[0];
+  void analizarIncidenciasTraficoApp(rutaPrincipal, {
+    mapa,
+    paradasEsperadas: opciones.paradasEsperadas || 0,
+    origen: opciones.origen ?? estadoRutaReponedor?.origen ?? null,
+    destinoFinal:
+      opciones.destinoFinal ??
+      estadoRutaReponedor?.rutaOrdenada?.[
+        (estadoRutaReponedor?.rutaOrdenada?.length || 0) - 1
+      ] ??
+      null,
+    apiKey:
+      opciones.apiKey ??
+      estadoRutaReponedor?.claveTomTom ??
+      (typeof obtenerClaveTomTom === "function" ? obtenerClaveTomTom() : ""),
+    fechaInput: opciones.fechaInput ?? leerFechaFuturaDesdeUIApp(),
+    seqRuta: opciones.seqRuta ?? calcularRutaSeq
+  }).catch((err) => {
+    console.warn("Análisis pasivo incidencias/ruta secundaria:", err);
+  });
 
   return capaPrincipal;
 }
@@ -1164,26 +1620,28 @@ function ensurePanelTraficoMenuLateral() {
   const panel = document.createElement("div");
   panel.id = "panel-trafico-ruta";
   panel.className = "panel-trafico-ruta";
+  panel.hidden = true;
   panel.innerHTML =
-    '<p id="contador-trafico-personalizado" class="small">Tráfico: sin ruta calculada</p>';
+    '<p id="contador-trafico-personalizado" class="small">Tráfico: calcula una ruta para ver los tramos.</p>';
   resumenDiv.parentNode.insertBefore(panel, resumenDiv);
+}
+
+function ocultarPanelTraficoMenuLateral() {
+  const panel = document.getElementById("panel-trafico-ruta");
+  if (panel) panel.hidden = true;
 }
 
 function limpiarPanelTraficoMenuLateral() {
   conteoTraficoRutaApp = { verde: 0, amarillo: 0, rojo: 0 };
-  const el =
-    document.getElementById("contador-trafico-personalizado") ||
-    document.getElementById("trafico-ruta-texto");
-  if (!el) return;
-
-  el.innerHTML =
-    "<strong>Tráfico:</strong> " +
-    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.rojo}">0 tramos rojos</span>, ` +
-    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.amarillo}">0 amarillos</span>, ` +
-    `<span style="color:${COLORES_TRAMO_TRAFICO_APP.verde}">0 verdes</span>`;
+  ensurePanelTraficoMenuLateral();
+  const el = document.getElementById("contador-trafico-personalizado");
+  if (el) {
+    el.textContent = "Tráfico: calcula una ruta para ver los tramos.";
+  }
+  ocultarPanelTraficoMenuLateral();
 }
 
-function actualizarPanelTraficoMenuLateral(conteo) {
+function actualizarPanelTraficoMenuLateral(conteo, retrasoGlobalSegundos = 0) {
   ensurePanelTraficoMenuLateral();
   const rojos = conteo.rojo ?? 0;
   const amarillos = conteo.amarillo ?? 0;
@@ -1191,16 +1649,26 @@ function actualizarPanelTraficoMenuLateral(conteo) {
 
   conteoTraficoRutaApp = { verde: verdes, amarillo: amarillos, rojo: rojos };
 
+  const panel = document.getElementById("panel-trafico-ruta");
   const el =
     document.getElementById("contador-trafico-personalizado") ||
     document.getElementById("trafico-ruta-texto");
   if (!el) return;
 
-  el.innerHTML =
+  if (panel) panel.hidden = false;
+
+  let html =
     "<strong>Tráfico:</strong> " +
     `<span style="color:${COLORES_TRAMO_TRAFICO_APP.rojo}">${rojos} tramos rojos</span>, ` +
     `<span style="color:${COLORES_TRAMO_TRAFICO_APP.amarillo}">${amarillos} amarillos</span>, ` +
     `<span style="color:${COLORES_TRAMO_TRAFICO_APP.verde}">${verdes} verdes</span>`;
+
+  const retraso = Number(retrasoGlobalSegundos) || 0;
+  if (retraso > 0) {
+    html += ` <span class="small">· retraso previsto en ruta: ${Math.round(retraso / 60)} min</span>`;
+  }
+
+  el.innerHTML = html;
 }
 
 function statsTraficoDesdeConteoApp(conteo) {
@@ -1310,7 +1778,11 @@ async function esquivarIncidenciaTomTom(incidencia) {
       paradasOk,
       claveTomTom,
       areasEvitadas,
-      { rutaEsquivada: true, autoEvitarRoadblocks: false },
+      {
+        rutaEsquivada: true,
+        autoEvitarRoadblocks: false,
+        omitirPintadoMapa: true
+      },
       seqEsquivar
     );
 
@@ -1323,7 +1795,8 @@ async function esquivarIncidenciaTomTom(incidencia) {
     }
 
     const datosTomTom = resultado.data;
-    const capaEsquivada = aplicarRutaMultiparadaTomTomAlMapa(map, datosTomTom, {
+    limpiarLineasRutaDelMapa();
+    const capaEsquivada = procesarDatosTomTomMultiparadaApp(map, datosTomTom, {
       rutaEsquivada: true
     });
     if (!capaEsquivada) {
@@ -1588,7 +2061,7 @@ function sincronizarParadasDesdeCheckboxes() {
 function programarEnrutamientoDesdeLista() {
   clearTimeout(recalcularRutaTimer);
   recalcularRutaTimer = setTimeout(() => {
-    void calcularRuta({ resolverOrigen: false });
+    void invocarEnrutamientoTomTom();
   }, 280);
 }
 
@@ -2061,8 +2534,17 @@ const BOUNDS_TENERIFE = L.latLngBounds(
   [28.65, -16.05]
 );
 
-function initMap() {
-  map = L.map("map", { maxZoom: 22 });
+function initMap(mapEl) {
+  const target = mapEl || document.getElementById("map");
+  if (!target) return;
+
+  if (map) {
+    map.remove();
+    map = null;
+    capasTraficoTomTom = null;
+  }
+
+  map = L.map(target, { maxZoom: 22 });
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 22,
@@ -2071,12 +2553,11 @@ function initMap() {
 
   map.fitBounds(BOUNDS_TENERIFE, { padding: [30, 30] });
 
+  requestAnimationFrame(() => map?.invalidateSize());
+  setTimeout(() => map?.invalidateSize(), 250);
+
   queueMicrotask(() => {
-    if (typeof initCapasTraficoTomTom !== "function") return;
-    const claveTomTom =
-      typeof obtenerClaveTomTom === "function"
-        ? obtenerClaveTomTom()
-        : window.TOMTOM_API_KEY || "";
+    const claveTomTom = obtenerClaveTomTom();
     capasTraficoTomTom = initCapasTraficoTomTom(map, claveTomTom);
     enlazarControlesTraficoTomTom(capasTraficoTomTom);
   });
@@ -2169,10 +2650,7 @@ async function invocarEnrutamientoTomTom() {
     return;
   }
 
-  if (
-    typeof coordenadasValidas !== "function" ||
-    !coordenadasValidas(origenRaw)
-  ) {
+  if (!coordenadasValidas(origenRaw)) {
     if (resumenDiv) {
       const valorOrigen =
         document.getElementById("select-origen")?.value ?? "gps";
@@ -2195,16 +2673,11 @@ async function invocarEnrutamientoTomTom() {
   ocultarResumenRutaFlotante();
   limpiarContenedorResumen("<p>Calculando ruta con tráfico TomTom...</p>");
 
-  const origenActual =
-    typeof normalizarPuntoRuta === "function"
-      ? normalizarPuntoRuta(origenRaw)
-      : origenRaw;
+  const origenActual = normalizarPuntoRuta(origenRaw);
 
   const paradasFiltradas = prepararParadasParaTomTom(origenActual, [
     ...misParadasSeleccionadas
-  ]).filter((p) =>
-    typeof coordenadasValidas === "function" ? coordenadasValidas(p) : true
-  );
+  ]).filter((p) => coordenadasValidas(p));
 
   if (paradasFiltradas.length === 0) {
     limpiarContenedorResumen(
@@ -2215,10 +2688,7 @@ async function invocarEnrutamientoTomTom() {
   }
 
   const paradasParaTomTom = ordenarPorRutaOptima(origenActual, paradasFiltradas);
-  const apiKey =
-    typeof obtenerClaveTomTom === "function"
-      ? obtenerClaveTomTom()
-      : window.TOMTOM_API_KEY || "";
+  const apiKey = obtenerClaveTomTom();
 
   try {
     let avisoRuta = "";
@@ -2235,13 +2705,19 @@ async function invocarEnrutamientoTomTom() {
       areasEvitadas: []
     };
 
+    const numWaypointsUrl = paradasParaTomTom.length + 1;
+    console.log("TomTom waypoints (origen + paradas):", numWaypointsUrl, {
+      origen: origenActual.nombre,
+      paradas: paradasParaTomTom.map((p) => p.nombre)
+    });
+
     const resultadoRuta = await calcularRutaTomTom(
       map,
       origenActual,
       paradasParaTomTom,
       apiKey,
       null,
-      { autoEvitarRoadblocks: true },
+      { autoEvitarRoadblocks: true, omitirPintadoMapa: true },
       miSeq
     );
 
@@ -2264,9 +2740,16 @@ async function invocarEnrutamientoTomTom() {
     const datosTomTom = resultadoRuta.data;
     const rutaTomTom = rutaPrincipalTomTomApp(datosTomTom);
 
-    // Procesado defensivo: routes[0] por legs; alternativas en bloque aparte.
+    limpiarLineasRutaDelMapa();
+
     const capaRuta = procesarDatosTomTomMultiparadaApp(map, datosTomTom, {
-      rutaEsquivada: Boolean(resultadoRuta?.rutaEsquivada)
+      rutaEsquivada: Boolean(resultadoRuta?.rutaEsquivada),
+      paradasEsperadas: paradasParaTomTom.length,
+      origen: origenActual,
+      destinoFinal: paradasParaTomTom[paradasParaTomTom.length - 1],
+      apiKey,
+      fechaInput: leerFechaFuturaDesdeUIApp(),
+      seqRuta: miSeq
     });
     statsTrafico = statsTraficoDesdeConteoApp(conteoTraficoRutaApp);
 
@@ -2275,10 +2758,11 @@ async function invocarEnrutamientoTomTom() {
       paradas: paradasParaTomTom.length,
       rutasEnRespuesta: datosTomTom.routes?.length ?? 0,
       legs: legsTomTom.length,
-      legsConGeometria: legsTomTom.filter(
-        (leg) => puntosLegComoPolylineApp(leg).length >= 2
-      ).length,
-      alternativasPintadas: window.capasRutaAlternativas?.length ?? 0
+      legsConGeometria: contarLegsConGeometriaApp(legsTomTom),
+      modoFallbackPolyline: multiparadaLegsIncompletosApp(rutaTomTom),
+      alternativasPintadas: (window.capasRuta || []).filter(
+        (c) => c?._esRutaAlternativaTomTom
+      ).length
     });
 
     if (!capaRuta) {
@@ -2431,14 +2915,159 @@ async function enrutarParadasDesdeUI() {
       }
     });
   }
-  await invocarEnrutamientoTomTom();
+  await calcularRuta({ resolverOrigen: false });
+}
+
+function construirPointsTomTomDesdeRutaApp(origen, paradas) {
+  const tramos = [];
+  const latO = Number(origen?.lat);
+  const lonO = Number(origen?.lon ?? origen?.lng);
+  if (Number.isFinite(latO) && Number.isFinite(lonO)) {
+    tramos.push(`${latO},${lonO}`);
+  }
+  (paradas || []).forEach((p) => {
+    const lat = Number(p?.lat);
+    const lon = Number(p?.lon ?? p?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    tramos.push(`${lat},${lon}`);
+  });
+  return tramos.join(":");
 }
 
 /**
- * Botón «Calcular ruta»:
- * 1) Fecha futura → URL TomTom (departAt sin %3A, maxAlternatives=2) vía fetch parcheado.
- * 2) Petición TomTom (calcularRutaTomTom + roadblocks).
- * 3) Procesado: routes[0].legs (tráfico por colores) y, aparte, routes.slice(1) en gris.
+ * FUNCIÓN 1 — SOLO PINTA (ruta principal multiparada). No analiza alternativas ni atascos.
+ * Mantiene el bucle por legs; si TomTom deja legs[1..n] sin puntos (maxAlternatives),
+ * repinta la polyline completa de routes[0] sin romper el flujo anterior.
+ */
+function pintarRutaPrincipalMultiparadaPlantillaApp(data, paradasEsperadas = 0) {
+  if (!data?.routes?.length || !map) return;
+
+  if (window.capasRuta) {
+    window.capasRuta.forEach((capa) => {
+      if (map.hasLayer(capa)) map.removeLayer(capa);
+    });
+  }
+  window.capasRuta = [];
+
+  if (typeof limpiarLineasRuta === "function") {
+    limpiarLineasRuta(map);
+  }
+  limpiarGrupoLineasRutaApp(map);
+
+  const dataOrdenado = datosTomTomRutaPrincipalPrimeroApp(data, paradasEsperadas);
+  const rutaPrincipal = dataOrdenado.routes[0];
+  const legs = rutaPrincipal.legs || [];
+  const polyCompleta = polylineCompletaRutaPrincipalApp(rutaPrincipal);
+
+  if (polyCompleta.length >= 2) {
+    const capaBase = L.polyline(polyCompleta, {
+      color: "#00cd00",
+      weight: 5,
+      opacity: 0.35
+    }).addTo(map);
+    window.capasRuta.push(capaBase);
+  }
+
+  let tramosRojos = 0;
+  let tramosAmarillos = 0;
+  let legsPintados = 0;
+
+  legs.forEach((leg) => {
+    const puntosLeg = leg.points || [];
+    let legConGeometria = false;
+
+    if (leg.sections && leg.sections.length > 0) {
+      leg.sections.forEach((seccion) => {
+        const puntosSeccion = puntosLeg.slice(
+          seccion.startPointIndex,
+          seccion.endPointIndex + 1
+        );
+        const coordenadasLeaflet = puntosSeccion
+          .map((p) => [
+            Number(p.latitude ?? p.lat),
+            Number(p.longitude ?? p.lon ?? p.lng)
+          ])
+          .filter((pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
+
+        if (coordenadasLeaflet.length < 2) return;
+
+        legConGeometria = true;
+        let colorTramo = "#00cd00";
+        const magnitud = seccion.magnitudOfDelay ?? seccion.magnitudeOfDelay;
+
+        if (magnitud === 3 || magnitud === 4) {
+          colorTramo = "#ff0000";
+          tramosRojos++;
+        } else if (magnitud === 1 || magnitud === 2) {
+          colorTramo = "#ffcc00";
+          tramosAmarillos++;
+        }
+
+        const polilinea = L.polyline(coordenadasLeaflet, {
+          color: colorTramo,
+          weight: 6,
+          opacity: 0.8
+        }).addTo(map);
+
+        window.capasRuta.push(polilinea);
+      });
+    } else {
+      const coordenadasCompletas = puntosLeg
+        .map((p) => [
+          Number(p.latitude ?? p.lat),
+          Number(p.longitude ?? p.lon ?? p.lng)
+        ])
+        .filter((pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]));
+
+      if (coordenadasCompletas.length < 2) return;
+
+      legConGeometria = true;
+      const lineaLimpia = L.polyline(coordenadasCompletas, {
+        color: "#00cd00",
+        weight: 6
+      }).addTo(map);
+      window.capasRuta.push(lineaLimpia);
+    }
+
+    if (legConGeometria) legsPintados += 1;
+  });
+
+  const incompleta =
+    legs.length > 0 &&
+    (legsPintados < legs.length || multiparadaLegsIncompletosApp(rutaPrincipal));
+
+  if (incompleta && polyCompleta.length >= 2) {
+    console.warn("TomTom: solo parte de los legs tenía geometría; repintado global", {
+      legs: legs.length,
+      legsPintados,
+      puntosPolyline: polyCompleta.length,
+      paradasEsperadas
+    });
+
+    const grupoFallback = L.featureGroup();
+    if (pintarRutaPrincipalFallbackPolylineApp(grupoFallback, rutaPrincipal, {})) {
+      grupoFallback.eachLayer((capa) => {
+        capa.addTo(map);
+        window.capasRuta.push(capa);
+      });
+    }
+
+    const conteoGlobal = contarTramosTraficoDesdeDatos(dataOrdenado);
+    tramosRojos = conteoGlobal.rojo;
+    tramosAmarillos = conteoGlobal.amarillo;
+  }
+
+  if (polyCompleta.length >= 2 && map.getBounds) {
+    try {
+      map.fitBounds(polyCompleta, { padding: [40, 40] });
+    } catch {
+      /* ignorar bounds inválidos */
+    }
+  }
+}
+
+/**
+ * Botón «Calcular ruta»: fetch TomTom → pintar (función 1) → extensiones pasivas (funciones 2 y 3).
  */
 async function calcularRuta(opciones = {}) {
   const resumenDiv = document.getElementById("resumen");
@@ -2462,7 +3091,7 @@ async function calcularRuta(opciones = {}) {
         geo.className = "small geo-estado error";
         geo.textContent = mensaje;
       }
-      resumenDiv.innerHTML = `<p>${mensaje}</p>`;
+      if (resumenDiv) resumenDiv.innerHTML = `<p>${mensaje}</p>`;
       return;
     }
   }
@@ -2477,66 +3106,289 @@ async function calcularRuta(opciones = {}) {
     return;
   }
 
+  const origenRaw = obtenerOrigenRuta();
+  if (
+    !origenRaw ||
+    typeof coordenadasValidas !== "function" ||
+    !coordenadasValidas(origenRaw)
+  ) {
+    if (resumenDiv) {
+      resumenDiv.innerHTML = "<p>Selecciona un punto de partida válido.</p>";
+    }
+    return;
+  }
+
+  const origenActual =
+    typeof normalizarPuntoRuta === "function"
+      ? normalizarPuntoRuta(origenRaw)
+      : origenRaw;
+
+  const paradasParaTomTom = prepararParadasParaTomTom(origenActual, [
+    ...misParadasSeleccionadas
+  ]).filter((p) =>
+    typeof coordenadasValidas === "function" ? coordenadasValidas(p) : true
+  );
+
+  if (paradasParaTomTom.length === 0) {
+    limpiarContenedorResumen(
+      "<p>Selecciona al menos una máquina distinta del origen.</p>"
+    );
+    return;
+  }
+
   await invocarEnrutamientoTomTom();
 }
 
-window.addEventListener("DOMContentLoaded", async () => {
+// ==================================================================
+// FLUJO SECUNDARIO AISLADO (incidencias + ruta de respaldo en paralelo)
+// No modifica invocarEnrutamientoTomTom ni el pintado continuo multiparada.
+// ==================================================================
+
+/** URL espejo origen→destino final; maxAlternatives=1 solo aquí (numParadas≥2 evita el de multiparada). */
+function construirUrlRutaSecundariaRespaldoTomTomApp(origen, destino, apiKey, opciones = {}) {
+  const latO = Number(origen?.lat);
+  const lonO = Number(origen?.lon ?? origen?.lng);
+  const latD = Number(destino?.lat);
+  const lonD = Number(destino?.lon ?? destino?.lng);
+  const points = `${latO},${lonO}:${latD},${lonD}`;
+
+  let url = construirUrlCalculateRouteTomTomApp(points, apiKey, {
+    fechaInput: opciones.fechaInput,
+    computeBestOrder: false,
+    numParadas: 2
+  });
+
+  if (!url.includes("maxAlternatives=")) {
+    url = url.replace("&traffic=true", "&traffic=true&maxAlternatives=1");
+  }
+
+  return url;
+}
+
+function limpiarRutasSecundariasRespaldoEnMapa(mapa) {
+  if (!window.capasRuta?.length) return;
+
+  const restantes = [];
+  window.capasRuta.forEach((capa) => {
+    if (capa?._esRutaSecundariaRespaldoTomTom) {
+      if (mapa && capa && mapa.hasLayer(capa)) {
+        mapa.removeLayer(capa);
+      }
+      return;
+    }
+    restantes.push(capa);
+  });
+  window.capasRuta = restantes;
+}
+
+/**
+ * Pinta data.routes[1] de la petición espejo (alternativa directa origen→fin).
+ */
+function pintarRutaSecundariaDeRespaldoApp(mapa, dataSecundaria) {
+  if (!mapa || !dataSecundaria?.routes?.[1]) return null;
+
+  const rutaAlt = dataSecundaria.routes[1];
+  const poly = polylineCompletaRutaPrincipalApp(rutaAlt);
+  if (poly.length < 2) return null;
+
+  limpiarRutasSecundariasRespaldoEnMapa(mapa);
+
+  const lineaGris = L.polyline(poly, {
+    color: "#9E9E9E",
+    weight: 3,
+    opacity: 0.6,
+    dashArray: "5, 10"
+  }).addTo(mapa);
+
+  lineaGris._esRutaSecundariaRespaldoTomTom = true;
+
+  lineaGris.on("click", function () {
+    window.capasRuta.forEach((capa) => {
+      if (
+        capa instanceof L.Polyline &&
+        capa._esRutaSecundariaRespaldoTomTom &&
+        capa.options.color === "#0056b3"
+      ) {
+        capa.setStyle({
+          color: "#9E9E9E",
+          weight: 3,
+          dashArray: "5, 10",
+          opacity: 0.6
+        });
+      }
+    });
+    lineaGris.setStyle({
+      color: "#0056b3",
+      weight: 6,
+      dashArray: null,
+      opacity: 0.9
+    });
+    console.log("Ruta secundaria de respaldo activada por el reponedor.");
+  });
+
+  if (!window.capasRuta) window.capasRuta = [];
+  window.capasRuta.push(lineaGris);
+  return lineaGris;
+}
+
+function mostrarBannerIncidenciaTraficoApp(retrasoSegundos) {
+  const minutos = Math.round(retrasoSegundos / 60);
+  let contenedor = document.getElementById("alerta-incidencias-ruta");
+  if (!contenedor) {
+    contenedor = document.createElement("div");
+    contenedor.id = "alerta-incidencias-ruta";
+    contenedor.style.cssText =
+      "background: #ffcccc; color: #cc0000; padding: 10px; margin: 10px 0; font-weight: bold; border-left: 5px solid #cc0000; border-radius: 4px;";
+    const sidebar = document.querySelector(".sidebar") || document.body;
+    sidebar.prepend(contenedor);
+  }
+
+  contenedor.innerHTML = `⚠️ ALERTA DE INCIDENCIA: Retención fuerte detectada en la ruta principal (Retraso: ${minutos} min). Se recomienda activar la ruta secundaria.`;
+}
+
+function ocultarBannerIncidenciaTraficoApp() {
+  const banner = document.getElementById("alerta-incidencias-ruta");
+  if (banner) banner.remove();
+}
+
+async function solicitarRutaSecundariaRespaldoTomTomApp(contexto) {
+  const { mapa, origen, destinoFinal, apiKey, fechaInput, seqRuta } = contexto;
+
+  if (
+    !mapa ||
+    !apiKey ||
+    typeof coordenadasValidas !== "function" ||
+    !coordenadasValidas(origen) ||
+    !coordenadasValidas(destinoFinal)
+  ) {
+    return;
+  }
+
+  const miSeqSecundaria = ++seqPeticionSecundariaRespaldoApp;
+  const url = construirUrlRutaSecundariaRespaldoTomTomApp(
+    origen,
+    destinoFinal,
+    apiKey,
+    { fechaInput }
+  );
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    console.warn("Ruta secundaria respaldo: TomTom respondió", response.status);
+    return;
+  }
+
+  const data = await response.json();
+
+  if (miSeqSecundaria !== seqPeticionSecundariaRespaldoApp) return;
+  if (seqRuta != null && seqRuta !== calcularRutaSeq) return;
+
+  pintarRutaSecundariaDeRespaldoApp(mapa, data);
+}
+
+/**
+ * Oyente pasivo: banner de atasco + petición espejo origen→fin (paralela, aislada).
+ */
+async function analizarIncidenciasTraficoApp(rutaPrincipal, contexto = {}) {
+  if (!rutaPrincipal) return;
+
+  try {
+    const retraso = Number(rutaPrincipal.summary?.trafficDelayInSeconds) || 0;
+    if (retraso > 300) {
+      mostrarBannerIncidenciaTraficoApp(retraso);
+    } else {
+      ocultarBannerIncidenciaTraficoApp();
+    }
+  } catch (err) {
+    console.warn("Banner incidencias tráfico:", err);
+  }
+
+  const numParadas = Number(contexto.paradasEsperadas) || 0;
+  if (numParadas <= 1) return;
+
+  try {
+    await solicitarRutaSecundariaRespaldoTomTomApp(contexto);
+  } catch (err) {
+    console.warn("Ruta secundaria de respaldo (no afecta multiparada):", err);
+  }
+}
+
+export async function onSelectOrigenChange() {
+  try {
+    const valor = document.getElementById("select-origen")?.value;
+
+    if (valor === "gps") {
+      const geo = document.getElementById("geo-estado");
+      if (geo && (!origenRuta?.esGPS || !coordenadasValidas(origenRuta))) {
+        geo.className = "small geo-estado";
+        geo.textContent =
+          "Pulsa «Confirmar mi ubicación actual» para fijar tu ubicación GPS.";
+      }
+      return;
+    }
+
+    const maquina = obtenerMaquinaPorId(valor);
+    if (maquina) {
+      await aplicarOrigenMaquinaYRecalcular(maquina);
+    }
+  } catch {
+    /* mensaje ya mostrado en geo-estado */
+  }
+}
+
+function adjuntarListenersUiUnaVez() {
+  if (listenersUiAdjuntos) return;
+  listenersUiAdjuntos = true;
+
+  document.getElementById("btn-ruta")?.addEventListener("click", () => calcularRuta());
+  document.getElementById("btn-reiniciar-mapa")?.addEventListener("click", reiniciarMapa);
+  document.getElementById("btn-confirmar-gps")?.addEventListener("click", () => {
+    void confirmarUbicacionGPS();
+  });
+  document.getElementById("select-origen")?.addEventListener("change", () => {
+    void onSelectOrigenChange();
+  });
+  document.getElementById("btn-buscar")?.addEventListener("click", () => {
+    void aplicarFiltroZona(true);
+  });
+  document.getElementById("input-zona")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") void aplicarFiltroZona(true);
+  });
+  document.getElementById("input-zona")?.addEventListener("input", () => {
+    const texto = document.getElementById("input-zona")?.value ?? "";
+    if (!texto.trim()) void aplicarFiltroZona(false);
+  });
+}
+
+/** Arranque del motor de ruta (llamado desde React tras montar el DOM). */
+export async function bootstrapPlanificador(mapEl) {
+  const miSeq = ++bootstrapSeq;
+
   window.capasRuta = window.capasRuta || [];
-  window.capasRutaAlternativas = window.capasRutaAlternativas || [];
   asegurarSelectorFechaFuturaEnSidebar();
   parchearFetchTomTomConDepartAt();
   initSelectOrigen();
-  initMap();
+  initMap(mapEl);
+  if (miSeq !== bootstrapSeq) return false;
+
   ensurePanelTraficoMenuLateral();
   limpiarPanelTraficoMenuLateral();
   initListaMaquinas(maquinasVisibles, []);
   actualizarIndicadorFiltro("", maquinasVisibles.length);
+  adjuntarListenersUiUnaVez();
 
   await restaurarEstadoDesdeLocalStorage();
+  if (miSeq !== bootstrapSeq) return false;
 
-  document.getElementById("btn-ruta").addEventListener("click", calcularRuta);
+  if (map) {
+    map.invalidateSize();
+  }
+  return true;
+}
 
-  document.getElementById("btn-reiniciar-mapa").addEventListener("click", reiniciarMapa);
-
-  document.getElementById("btn-confirmar-gps").addEventListener("click", () => {
-    confirmarUbicacionGPS();
-  });
-
-  document.getElementById("select-origen").addEventListener("change", async () => {
-    try {
-      const valor = document.getElementById("select-origen").value;
-
-      if (valor === "gps") {
-        const geo = document.getElementById("geo-estado");
-        if (
-          geo &&
-          (!origenRuta?.esGPS ||
-            typeof coordenadasValidas !== "function" ||
-            !coordenadasValidas(origenRuta))
-        ) {
-          geo.className = "small geo-estado";
-          geo.textContent =
-            "Pulsa «Confirmar mi ubicación actual» para fijar tu ubicación GPS.";
-        }
-        return;
-      }
-
-      const maquina = obtenerMaquinaPorId(valor);
-      if (maquina) {
-        await aplicarOrigenMaquinaYRecalcular(maquina);
-      }
-    } catch {
-      /* mensaje ya mostrado en geo-estado */
-    }
-  });
-  document.getElementById("btn-buscar").addEventListener("click", () => {
-    aplicarFiltroZona(true);
-  });
-  document.getElementById("input-zona").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") aplicarFiltroZona(true);
-  });
-  document.getElementById("input-zona").addEventListener("input", () => {
-    const texto = document.getElementById("input-zona").value;
-    if (!texto.trim()) aplicarFiltroZona(false);
-  });
-});
+export {
+  calcularRuta,
+  reiniciarMapa,
+  confirmarUbicacionGPS,
+  aplicarFiltroZona
+};
