@@ -79,6 +79,18 @@ export function uiSetGeoEstado(className, text) {
   geo.textContent = text;
 }
 
+export function uiSetGpsConfirmando(activo) {
+  if (api?.setGpsConfirmando) {
+    api.setGpsConfirmando(Boolean(activo));
+  }
+}
+
+export function uiSetOrigenGpsConfirmado(confirmado) {
+  if (api?.setOrigenGpsConfirmado) {
+    api.setOrigenGpsConfirmado(Boolean(confirmado));
+  }
+}
+
 export function uiSetOrigenInfoHtml(html) {
   if (api?.setOrigenInfoHtml) {
     api.setOrigenInfoHtml(html);

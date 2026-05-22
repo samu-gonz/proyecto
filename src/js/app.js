@@ -372,9 +372,10 @@ function restaurarOrigenDesdeEstado(estado) {
     };
     colocarMarcadorGpsUsuario(lat, lon, estado.origenGps.precision);
     actualizarInfoOrigen();
+    planificadorUi.uiSetOrigenGpsConfirmado(true);
     planificadorUi.uiSetGeoEstado(
       "small geo-estado ok",
-      "Ubicación restaurada. Reactivando seguimiento GPS en segundo plano…"
+      MSG_RUTA.confirmarGpsRestauradoSesion
     );
     reanudarSeguimientoGPS();
     return true;
@@ -520,6 +521,7 @@ function actualizarInfoOrigen() {
   const origen = obtenerOrigenRuta();
 
   if (!origen) {
+    planificadorUi.uiSetOrigenGpsConfirmado(false);
     planificadorUi.uiSetOrigenInfoHtml(MSG_RUTA.origenInfoVacio);
     return;
   }
@@ -527,6 +529,10 @@ function actualizarInfoOrigen() {
   let tipo = "Máquina (origen)";
   if (origen.esGPS) tipo = "Ubicación actual (GPS)";
   else if (origen.esMaquina) tipo = "Máquina seleccionada como origen";
+
+  if (origen.esGPS) {
+    planificadorUi.uiSetOrigenGpsConfirmado(true);
+  }
 
   planificadorUi.uiSetOrigenInfoHtml(
     `<p><strong>${origen.nombre}</strong><br>` +
@@ -1579,15 +1585,6 @@ function actualizarPanelTraficoMenuLateral(conteo, retrasoGlobalSegundos = 0) {
   planificadorUi.uiSetPanelTrafico({ hidden: false, html });
 }
 
-function statsTraficoDesdeConteoApp(conteo) {
-  return {
-    fluido: conteo.verde,
-    lento: conteo.amarillo,
-    congestion: conteo.rojo,
-    total: conteo.verde + conteo.amarillo + conteo.rojo
-  };
-}
-
 /** Limpieza física + amnesia de estado antes de cada cálculo nuevo. */
 function limpiarRutaAntesDeNuevoCalculo() {
   limpiarLineasRutaDelMapa();
@@ -1752,6 +1749,8 @@ function establecerOrigenMaquina(maquina, opciones = {}) {
     limpiarRutaEnMapa();
   }
 
+  planificadorUi.uiSetOrigenGpsConfirmado(false);
+
   origenRuta = {
     nombre: maquina.nombre,
     lat: Number(maquina.lat),
@@ -1784,6 +1783,58 @@ async function aplicarOrigenMaquinaYRecalcular(maquina) {
   await recalcularRutaAutomaticaAhora();
 }
 
+function iniciarWatchSeguimientoGPS() {
+  gpsWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      if (aplicarPosicionGPS(position, { esPrimeraLectura: false })) {
+        if (origenRuta?.esGPS) {
+          planificadorUi.uiSetGeoEstado(
+            "small geo-estado ok",
+            "Seguimiento GPS activo: el marcador se actualiza al moverte."
+          );
+        }
+        programarGuardadoEstado();
+      }
+    },
+    (error) => {
+      if (origenRuta?.esGPS) {
+        planificadorUi.uiSetGeoEstado(
+          "small geo-estado error",
+          mensajeErrorGeolocalizacion(error)
+        );
+      }
+    },
+    opcionesGPS
+  );
+}
+
+async function mensajeEsperaConfirmarGps() {
+  if (!navigator.permissions?.query) {
+    return MSG_RUTA.confirmarGpsEspera;
+  }
+  try {
+    const estado = await navigator.permissions.query({ name: "geolocation" });
+    if (estado.state === "granted") {
+      return MSG_RUTA.confirmarGpsEsperaPermisoConcedido;
+    }
+  } catch {
+    /* Permissions API no disponible en este navegador */
+  }
+  return MSG_RUTA.confirmarGpsEspera;
+}
+
+function sincronizarEstadoGpsEnUi() {
+  const valor = planificadorUi.uiGetSelectOrigen();
+  const gpsListo = origenRuta?.esGPS === true && coordenadasValidas(origenRuta);
+  planificadorUi.uiSetOrigenGpsConfirmado(gpsListo);
+
+  if (valor !== "gps") return;
+
+  if (gpsListo) return;
+
+  planificadorUi.uiSetGeoEstado("small geo-estado", MSG_RUTA.gpsFijar);
+}
+
 function iniciarSeguimientoGPS() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -1802,50 +1853,24 @@ function iniciarSeguimientoGPS() {
 
     detenerSeguimientoGPS();
 
-    let primeraLectura = true;
-
-    gpsWatchId = navigator.geolocation.watchPosition(
+    navigator.geolocation.getCurrentPosition(
       (position) => {
-        const esPrimera = primeraLectura;
-        const ok = aplicarPosicionGPS(position, { esPrimeraLectura: esPrimera });
-
+        const ok = aplicarPosicionGPS(position, { esPrimeraLectura: true });
         if (!ok) {
-          if (esPrimera) {
-            detenerSeguimientoGPS();
-            reject({
-              mensaje: "Error: Coordenadas GPS inválidas recibidas del navegador."
-            });
-          }
+          reject({
+            mensaje: "Error: Coordenadas GPS inválidas recibidas del navegador."
+          });
           return;
         }
 
-        if (esPrimera) {
-          primeraLectura = false;
-          resolve(position);
-          return;
-        }
-
-        if (origenRuta?.esGPS) {
-          planificadorUi.uiSetGeoEstado(
-            "small geo-estado ok",
-            "Seguimiento GPS activo: el marcador se actualiza al moverte."
-          );
-        }
+        iniciarWatchSeguimientoGPS();
+        resolve(position);
       },
       (error) => {
-        const payload = {
+        reject({
           error,
           mensaje: mensajeErrorGeolocalizacion(error)
-        };
-        if (primeraLectura) {
-          detenerSeguimientoGPS();
-          reject(payload);
-        } else {
-          planificadorUi.uiSetGeoEstado(
-            "small geo-estado error",
-            payload.mensaje
-          );
-        }
+        });
       },
       opcionesGPS
     );
@@ -1853,30 +1878,16 @@ function iniciarSeguimientoGPS() {
 }
 
 async function confirmarUbicacionGPS() {
-  const btn = document.getElementById("btn-confirmar-gps");
-  const select = document.getElementById("select-origen");
-  const textoBtnOriginal =
-    btn?.dataset.labelOriginal || btn?.textContent || "Confirmar mi ubicación actual";
-
-  if (btn && !btn.dataset.labelOriginal) {
-    btn.dataset.labelOriginal = textoBtnOriginal;
-  }
-
   planificadorUi.uiSetSelectOrigen("gps");
+  planificadorUi.uiSetGpsConfirmando(true);
 
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = "Detectando GPS...";
-  }
-  if (select) {
-    select.disabled = true;
-  }
-
-  planificadorUi.uiSetGeoEstado("small geo-estado", MSG_RUTA.confirmarGpsEspera);
+  const mensajeEspera = await mensajeEsperaConfirmarGps();
+  planificadorUi.uiSetGeoEstado("small geo-estado", mensajeEspera);
 
   try {
     await iniciarSeguimientoGPS();
 
+    planificadorUi.uiSetOrigenGpsConfirmado(true);
     planificadorUi.uiSetGeoEstado("small geo-estado ok", MSG_RUTA.confirmarGpsOk);
 
     programarGuardadoEstado();
@@ -1889,6 +1900,7 @@ async function confirmarUbicacionGPS() {
     return true;
   } catch (err) {
     detenerSeguimientoGPS();
+    planificadorUi.uiSetOrigenGpsConfirmado(false);
 
     const mensaje =
       err.mensaje ||
@@ -1899,13 +1911,7 @@ async function confirmarUbicacionGPS() {
 
     return false;
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = textoBtnOriginal;
-    }
-    if (select) {
-      select.disabled = false;
-    }
+    planificadorUi.uiSetGpsConfirmando(false);
   }
 }
 
@@ -2117,6 +2123,7 @@ function limpiarTodoElMapa() {
   ocultarResumenRutaFlotante();
 
   planificadorUi.uiSetSelectOrigen("gps");
+  planificadorUi.uiSetOrigenGpsConfirmado(false);
   limpiarContenedorResumen(MSG_RUTA.reinicioResumen);
   planificadorUi.uiSetGeoEstado("small geo-estado", MSG_RUTA.reinicioGeo);
   planificadorUi.uiSetInputZona("");
@@ -2573,8 +2580,6 @@ async function invocarEnrutamientoTomTom() {
 
   try {
     let avisoRuta = "";
-    let statsTrafico = null;
-
     if (!apiKey) {
       throw new Error("Sin clave TomTom");
     }
@@ -2632,7 +2637,6 @@ async function invocarEnrutamientoTomTom() {
       fechaInput: leerFechaFuturaDesdeUIApp(),
       seqRuta: miSeq
     });
-    statsTrafico = statsTraficoDesdeConteoApp(conteoTraficoRutaApp);
 
     const legsTomTom = rutaTomTom?.legs || [];
     console.log("Ruta multiparada TomTom:", {
@@ -2732,12 +2736,6 @@ async function invocarEnrutamientoTomTom() {
     }
     if (summary.trafficDelayInSeconds > 0) {
       html += `<p><strong>Retraso por tráfico:</strong> ${Math.round(summary.trafficDelayInSeconds / 60)} min</p>`;
-    }
-    if (statsTrafico && statsTrafico.total > 0) {
-      html += `<p><strong>Tramos en ruta:</strong> `;
-      html += `<span style="color:#00E676">■</span> ${statsTrafico.fluido} fluidos `;
-      html += `<span style="color:#FFD600">■</span> ${statsTrafico.lento} lentos `;
-      html += `<span style="color:#FF1744">■</span> ${statsTrafico.congestion} congestionados</p>`;
     }
     html += `<p><strong>Tiempo servicio en paradas:</strong> ${tiempoServicioTotal} min</p>`;
     html += `<p><strong>Tiempo total estimado:</strong> ${tiempoTotalEstimado} min</p>`;
@@ -3197,10 +3195,15 @@ export async function onSelectOrigenChange(valorOverride) {
 
     if (valor === "gps") {
       if (!origenRuta?.esGPS || !coordenadasValidas(origenRuta)) {
+        planificadorUi.uiSetOrigenGpsConfirmado(false);
         planificadorUi.uiSetGeoEstado("small geo-estado", MSG_RUTA.gpsFijar);
+      } else {
+        planificadorUi.uiSetOrigenGpsConfirmado(true);
       }
       return;
     }
+
+    planificadorUi.uiSetOrigenGpsConfirmado(false);
 
     const maquina = obtenerMaquinaPorId(valor);
     if (maquina) {
@@ -3266,6 +3269,8 @@ export async function bootstrapPlanificador(mapEl) {
 
   await restaurarEstadoDesdeLocalStorage();
   if (miSeq !== bootstrapSeq) return false;
+
+  sincronizarEstadoGpsEnUi();
 
   if (map) {
     map.invalidateSize();

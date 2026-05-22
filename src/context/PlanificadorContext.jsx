@@ -34,6 +34,8 @@ export function PlanificadorProvider({ children }) {
     `Mostrando las ${MAQUINAS.length} máquinas.`
   );
   const [selectOrigen, setSelectOrigen] = useState("gps");
+  const [gpsConfirmando, setGpsConfirmando] = useState(false);
+  const [origenGpsConfirmado, setOrigenGpsConfirmado] = useState(false);
   const [inputZona, setInputZona] = useState("");
   const [departAt, setDepartAt] = useState("");
   const [panelTrafico, setPanelTrafico] = useState({
@@ -71,6 +73,8 @@ export function PlanificadorProvider({ children }) {
       getInputZona: () => inputZona,
       setInputZona,
       setGeoEstado,
+      setGpsConfirmando,
+      setOrigenGpsConfirmado,
       setOrigenInfoHtml,
       setFiltroActivo,
       getSelectedMaquinaIds,
@@ -99,6 +103,8 @@ export function PlanificadorProvider({ children }) {
       filtroActivo,
       selectOrigen,
       setSelectOrigen,
+      gpsConfirmando,
+      origenGpsConfirmado,
       inputZona,
       setInputZona,
       departAt,
@@ -115,6 +121,8 @@ export function PlanificadorProvider({ children }) {
       origenInfoHtml,
       filtroActivo,
       selectOrigen,
+      gpsConfirmando,
+      origenGpsConfirmado,
       inputZona,
       departAt,
       panelTrafico,

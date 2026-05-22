@@ -7,7 +7,8 @@ export default function OriginSection() {
     setSelectOrigen,
     geoEstado,
     origenInfoHtml,
-    maquinasOrigenOpciones
+    maquinasOrigenOpciones,
+    gpsConfirmando
   } = usePlanificador();
 
   return (
@@ -22,6 +23,7 @@ export default function OriginSection() {
       <select
         id="select-origen"
         value={selectOrigen}
+        disabled={gpsConfirmando}
         onChange={(e) => {
           const valor = e.target.value;
           setSelectOrigen(valor);
@@ -41,9 +43,12 @@ export default function OriginSection() {
         type="button"
         id="btn-confirmar-gps"
         className="btn-confirmar-gps"
+        disabled={gpsConfirmando}
         onClick={() => void confirmarUbicacionGPS()}
       >
-        Confirmar mi ubicación actual
+        {gpsConfirmando
+          ? "Detectando GPS…"
+          : "Confirmar mi ubicación actual"}
       </button>
       <p id="geo-estado" className={geoEstado.className}>
         {geoEstado.text}

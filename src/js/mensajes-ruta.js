@@ -66,8 +66,14 @@ export const MSG_RUTA = {
   confirmarGpsEspera:
     "Esperando GPS… Cuando se confirme, podrás calcular la ruta desde tu ubicación.",
 
+  confirmarGpsEsperaPermisoConcedido:
+    "Esperando GPS… Si el navegador ya tiene permiso («siempre»), no volverá a preguntar; solo fijamos tu posición en el mapa.",
+
   confirmarGpsOk:
     "GPS confirmado. Marca máquinas o pulsa «Calcular ruta óptima» para ver el trayecto.",
+
+  confirmarGpsRestauradoSesion:
+    "Ubicación restaurada de la sesión anterior. Pulsa «Confirmar» de nuevo si quieres actualizarla ahora.",
 
   origenMaquinaActualizando: (nombre) =>
     `Origen: ${nombre}. Actualizando ruta en el mapa…`,
